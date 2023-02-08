@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Set, Tuple, Optional
+from typing import Dict, Set, Tuple, Optional, List
 from math import comb
 
 from .linalg import Mat2
@@ -122,3 +122,126 @@ def flow(
             processed |= Out_prime
             correctors = (correctors.difference(C_prime)) | (Out_prime.intersection(vertices.difference(inputs)))
             k += 1
+            
+def FindFlow(
+    g: BaseGraph[VT, ET]
+):
+    """Compute the causal flow of a diagram in graph-like form.
+
+    Based on an algorithm by Niel de Beaudrap.
+    See https://doi.org/10.48550/arXiv.quant-ph/0603072
+    """
+    k = g.num_inputs()
+    n = g.num_vertices()
+    if g.num_edges() > (k*n - comb(k+1,2)): return None
+    F = BuildPathCover(g)
+    if not F: return None
+    f, P, L = GetChainDecomp(g, F)
+    sup = ComputeSuprema(g,f,P,L)
+    if not sup: return None
+    return f,P,L,sup
+
+class dipaths:
+  def __init__(self, vertices:List[VT]) -> None:
+    self.vertices = {v:False for v in vertices}
+    self.arcs = {v:[None,None] for v in vertices}
+  def prev(self, v):
+    return self.arcs[v][0]
+  def next(self, v):
+    return self.arcs[v][1]
+  def add_arc(self, v, w):
+    self.arcs[v][1] = w
+    self.arcs[w][0] = v
+    self.vertices[v] = True
+    self.vertices[w] = True
+  def del_arc(self, v, w):
+    self.arcs[v][1] = None
+    if self.arcs[v][0] is None: self.vertices[v] = False
+    self.arcs[w][0] = None
+    if self.arcs[w][0] is None: self.vertices[w] = False
+          
+def BuildPathCover(g:BaseGraph[VT, ET]) -> Optional[dipaths]:
+  """Tries to build a path cover for g"""
+  F = dipaths(g.vertices()) #collection of vertex disjoint dipaths in G
+  visited = {v:0 for v in g.vertices()}
+  i = 0
+  for inp in g.inputs():
+    i += 1
+    F, visited, success = AugmentSearch(g, F, i, visited, inp)
+    if not success: return None
+  if len([v for v in g.vertices() if not F.vertices[v]]) == 0: return F
+  else: return None
+
+def AugmentSearch(g:BaseGraph[VT, ET], F:dipaths, iter:int, visited:Dict[VT,int], v:VT) -> Tuple[dipaths,Dict[VT,int],bool]:
+  """Searches for an output vertex along pre-alternating walks for F starting at v, subject to limitations on the end-points of the search paths"""
+  visited[v] = iter
+  if v in g.outputs(): return(F, visited, True)
+  if F.vertices[v] and v not in g.inputs() and visited[F.prev(v)] < iter:
+    F, visited, success = AugmentSearch(g, F, iter, visited, F.prev(v))
+    if success:
+      F.del_arc(F.prev(v),v)
+      return F, visited, True
+  for w in g.neighbors(v):
+    if visited[w] < iter and w not in g.inputs() and F.next(v) != w:
+      if not F.vertices[w]:
+        F, visited, success = AugmentSearch(g, F, iter, visited, w)
+        if success:
+          F.add_arc(v,w)
+          return F, visited, True
+      elif visited[F.prev(w)] < iter:
+        F, visited, success = AugmentSearch(g, F, iter, visited, F.prev(w))
+        if success:
+          F.del_arc(F.prev(w),w)
+          F.add_arc(v,w)
+          return F, visited, True
+  return F, visited, False
+
+def GetChainDecomp(g:BaseGraph[VT, ET], C:dipaths) -> Tuple[Dict[VT,VT], Dict[VT,VT], Dict[VT,int]]:
+  """Obtain the successor function f of the path cover C, and obtain functions describing the chain decomposition of the influencing digraph"""
+  P = {v:None for v in g.vertices()}
+  L = {v:0 for v in g.vertices()}
+  f = {v:None for v in g.vertices() if v not in g.outputs()}
+  for inp in g.inputs():
+    l = 0
+    v = inp
+    while v not in g.outputs():
+      f[v] = C.next(v)
+      P[v] = inp
+      L[v] = l
+      v = C.next(v)
+      l += 1
+    P[v] = inp
+    L[v] = l
+  return f, P, L
+
+def ComputeSuprema(g:BaseGraph[VT, ET], f:Dict[VT,VT], P:Dict[VT,VT], L:Dict[VT,int]) -> Dict[Tuple[VT,VT],int]:
+  """Compute the natural pre-order for successor function f in the form of a supremum function and functions characterising C"""
+  sup, status = InitStatus(g,P,L)
+  for v in [v for v in g.vertices() if v not in g.outputs()]:
+    if not status[v]: sup, status = TraverseInflWalk(g,f,sup,status,v)
+    if status[v] == 'pending': return False
+  return sup
+  
+def InitStatus(g:BaseGraph[VT, ET], P:Dict[VT,VT], L:Dict[VT,int]):
+  """Initialise the supremum function, and the status of each vertex"""
+  sup = {(inp,v):None for v in g.vertices() for inp in g.inputs()}
+  status = {v:None for v in g.vertices()}
+  for v in g.vertices():
+    for inp in g.inputs():
+      if inp == P[v]: sup[(inp,v)]=L[v]
+      else: sup[(inp,v)]=g.num_vertices()
+    if v in g.outputs(): status[v]=True
+  return sup, status
+
+def TraverseInflWalk(g:BaseGraph[VT, ET], f:Dict[VT,VT], sup:Dict[Tuple[VT,VT],int], status:Dict[VT,bool], v:VT) -> Tuple[Dict[Tuple[VT,VT], Dict[VT,bool]]]:
+  """Compute the suprema of v and all of it's descedants, by traversing influencing walks from v"""
+  status[v] = 'pending'
+  for w in list(g.neighbors(f[v]))+[f[v]]:
+    if w != v:
+      if not status[w]: sup, status = TraverseInflWalk(g,f,sup,status,w)
+      if status[w] == 'pending': return sup, status
+      else:
+        for inp in g.inputs():
+          if sup[(inp,v)] > sup[(inp,w)]: sup[(inp,v)] = sup[(inp,w)]
+  status[v] = True
+  return sup, status  
