@@ -14,45 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""
- Based on algorithm by Perdrix and Mhalla. Here is the pseudocode from
-dx.doi.org/10.1007/978-3-540-70575-8_70
-
-```
-input : An open graph
-output: A generalised flow
-
-gFlow (V,Gamma,In,Out) =
-begin
-  for all v in Out do
-    l(v) := 0
-  end
-  return gFlowaux (V,Gamma,In,Out,1)
-end
-
-gFlowaux (V,Gamma,In,Out,k) =
-begin
-  C := {}
-  for all u in V \ Out do
-    Solve in F2 : Gamma[V \ Out, Out \ In] * I[X] = I[{u}]
-    if there is a solution X0 then
-      C := C union {u}
-      g(u) := X0
-      l(u) := k
-    end
-  end
-  if C = {} then
-    return (Out = V,(g,l))
-  else
-    return gFlowaux (V, Gamma, In, Out union C, k + 1)
-  end
-end
-```
-"""
-
 from typing import Dict, Set, Tuple, Optional
+from math import comb
 
-from .extract import bi_adj
 from .linalg import Mat2
 from .graph.base import BaseGraph, VertexType, VT, ET
 
@@ -98,7 +62,7 @@ def gflow(
 
         zerovec = Mat2([[0] for i in range(len(candidates))])
         # print(unprocessed, processed_prime, zerovec)
-        m = bi_adj(g, processed_prime, candidates)
+        m = Mat2([[1 if g.connected(v,w) else 0 for v in processed_prime] for w in candidates])
         for u in candidates:
             vu = zerovec.copy()
             vu.data[candidates.index(u)] = [1]
@@ -114,4 +78,47 @@ def gflow(
             return None
         else:
             processed.update(correct)
+            k += 1
+
+def flow(
+  g: BaseGraph[VT, ET]
+) -> Optional[Tuple[Dict[VT, int], Dict[VT, Set[VT]], int]]:
+    """Compute the causal flow of a diagram in graph-like form.
+    Computes in O(kn) for vertices n and k=|I|=|O| 
+
+    Based on algorithm by Perdrix and Mhalla.
+    See dx.doi.org/10.1007/978-3-540-70575-8_70
+    """
+    order: Dict[VT, int] = {}
+    flow: Dict[VT, VT] = {}
+    
+    inputs: Set[VT] = set(g.inputs())
+    processed: Set[VT] = set(g.outputs())
+    vertices: Set[VT] = set(g.vertices())
+    correctors = processed.difference(inputs)
+    k: int = 1
+    
+    for v in processed:
+        order[v] = 0
+
+    while True:
+        Out_prime = set()
+        C_prime = set()
+        
+        for v in correctors:
+            ns = set(g.neighbors(v)).difference(processed)
+            if len(ns) == 1 and v not in ns:
+                (u,) = ns
+                flow[u] = v
+                order[v] = k
+                Out_prime |= {u}
+                C_prime |= {v}
+
+        if not Out_prime:
+            if processed == vertices:
+                return order, flow, k
+            return None
+        else:
+            processed |= Out_prime
+            correctors = (correctors.difference(C_prime)) | (Out_prime.intersection(vertices.difference(inputs)))
             k += 1
