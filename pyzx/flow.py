@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, Set, Tuple, Optional, List
+from typing import Dict, Set, Tuple, Optional, List, FrozenSet
 from math import comb
 
 from .linalg import Mat2
@@ -80,7 +80,7 @@ def gflow(
             processed.update(correct)
             k += 1
 
-def flow(
+def fast_flow(
   g: BaseGraph[VT, ET]
 ) -> Optional[Tuple[Dict[VT, int], Dict[VT, Set[VT]], int]]:
     """Compute the causal flow of a diagram in graph-like form.
@@ -123,7 +123,7 @@ def flow(
             correctors = (correctors.difference(C_prime)) | (Out_prime.intersection(vertices.difference(inputs)))
             k += 1
             
-def FindFlow(
+def causal_flow(
     g: BaseGraph[VT, ET]
 ):
     """Compute the causal flow of a diagram in graph-like form.
@@ -131,34 +131,61 @@ def FindFlow(
     Based on an algorithm by Niel de Beaudrap.
     See https://doi.org/10.48550/arXiv.quant-ph/0603072
     """
-    k = g.num_inputs()
-    n = g.num_vertices()
-    if g.num_edges() > (k*n - comb(k+1,2)): return None
-    F = BuildPathCover(g)
+    gadgets, gadget_connections = find_gadgets(g)
+    geo = g.clone()
+    geo.remove_vertices(list(gadgets.keys())+list(gadgets.values()))
+    
+    k = geo.num_inputs()
+    n = geo.num_vertices()
+    if geo.num_edges() > (k*n - comb(k+1,2)): return None
+    F = BuildPathCover(geo)
     if not F: return None
-    f, P, L = GetChainDecomp(g, F)
-    sup = ComputeSuprema(g,f,P,L)
+    f, P, L = GetChainDecomp(geo,F)
+    sup = ComputeSuprema(geo,f,P,L)
     if not sup: return None
+    
+    for n in gadgets.keys():
+      connecting = gadget_connections[n]
+      connecting_prevs = [F.prev(w) for w in connecting]
+      for v in connecting:
+        for s in connecting_prevs:
+          if L[v] < sup[(P[v],s)]:
+            return None
     return f,P,L,sup
+  
+def find_gadgets(g:BaseGraph[VT,ET]):
+  gadgets = dict()
+  gadget_connections = dict()
+  phases = g.phases()
+  for v in [v for v in g.vertices() if v not in g.inputs() or g.outputs()]:
+    if g.vertex_degree(v)==1:
+      n = list(g.neighbors(v))[0]
+      if not (g.types()[v] == VertexType.Z and g.types()[n] == VertexType.Z): continue
+      if phases[n] not in (0,1): continue
+      if n in gadgets: continue
+      if n in g.inputs() or n in g.outputs(): continue
+      gadgets[n] = v
+      gadget_connections[n] = frozenset(set(g.neighbors(n)).difference({v}))
+  return gadgets, gadget_connections
 
 class dipaths:
   def __init__(self, vertices:List[VT]) -> None:
     self.vertices = {v:False for v in vertices}
-    self.arcs = {v:[None,None] for v in vertices}
+    self.arcs = {v:[[],[]] for v in vertices}
   def prev(self, v):
-    return self.arcs[v][0]
+    return next(iter(self.arcs[v][0]),None)
   def next(self, v):
-    return self.arcs[v][1]
+    return next(iter(self.arcs[v][1]),None)
   def add_arc(self, v, w):
-    self.arcs[v][1] = w
-    self.arcs[w][0] = v
+    self.arcs[v][1].append(w)
+    self.arcs[w][0].append(v)
     self.vertices[v] = True
     self.vertices[w] = True
   def del_arc(self, v, w):
-    self.arcs[v][1] = None
-    if self.arcs[v][0] is None: self.vertices[v] = False
-    self.arcs[w][0] = None
-    if self.arcs[w][0] is None: self.vertices[w] = False
+    self.arcs[v][1].remove(w)
+    if not self.arcs[v][0]: self.vertices[v] = False
+    self.arcs[w][0].remove(v)
+    if not self.arcs[w][1]: self.vertices[w] = False
           
 def BuildPathCover(g:BaseGraph[VT, ET]) -> Optional[dipaths]:
   """Tries to build a path cover for g"""
@@ -205,9 +232,11 @@ def GetChainDecomp(g:BaseGraph[VT, ET], C:dipaths) -> Tuple[Dict[VT,VT], Dict[VT
     l = 0
     v = inp
     while v not in g.outputs():
-      f[v] = C.next(v)
+      try: f[v] = C.next(v)
+      except: raise Exception(f'Vertex: {v}')
       P[v] = inp
       L[v] = l
+      if C.next(v)==None: print(v)
       v = C.next(v)
       l += 1
     P[v] = inp
