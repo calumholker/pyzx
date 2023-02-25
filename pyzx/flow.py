@@ -146,21 +146,21 @@ def causal_flow(
     
     for n in gadgets.keys():
       connecting = gadget_connections[n]
-      connecting_prevs = [F.prev(w) for w in connecting]
+      try: connecting_prevs = [F.prev(w) for w in connecting if w not in g.inputs()]
+      except: return None # gadgets are connected
       for v in connecting:
         for s in connecting_prevs:
-          if L[v] < sup[(P[v],s)]:
-            return None
+          if (not sup[(P[v],s)] <= L[v]) and (sup[(P[s],v)] <= L[s]): return None #if v is BEFORE s in ordering (not equal)
     return f,P,L,sup
   
 def find_gadgets(g:BaseGraph[VT,ET]):
   gadgets = dict()
   gadget_connections = dict()
   phases = g.phases()
-  for v in [v for v in g.vertices() if v not in g.inputs() or g.outputs()]:
-    if g.vertex_degree(v)==1:
+  for v in g.vertices():
+    if v not in g.inputs() and v not in g.outputs() and g.vertex_degree(v)==1:
       n = list(g.neighbors(v))[0]
-      if not (g.types()[v] == VertexType.Z and g.types()[n] == VertexType.Z): continue
+      if not (g.type(v) == VertexType.Z and g.type(n) == VertexType.Z): continue
       if phases[n] not in (0,1): continue
       if n in gadgets: continue
       if n in g.inputs() or n in g.outputs(): continue
@@ -173,9 +173,9 @@ class dipaths:
     self.vertices = {v:False for v in vertices}
     self.arcs = {v:[[],[]] for v in vertices}
   def prev(self, v):
-    return next(iter(self.arcs[v][0]),None)
+    return next(iter(self.arcs[v][0]),[])
   def next(self, v):
-    return next(iter(self.arcs[v][1]),None)
+    return next(iter(self.arcs[v][1]),[])
   def add_arc(self, v, w):
     self.arcs[v][1].append(w)
     self.arcs[w][0].append(v)
