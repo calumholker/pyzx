@@ -20,7 +20,7 @@ __all__ = ['extract_circuit', 'extract_simple', 'graph_to_swaps', 'lookahead_ext
 from fractions import Fraction
 import itertools
 
-from .utils import EdgeType, VertexType, toggle_edge
+from .utils import EdgeType, VertexType, toggle_edge, FractionLike
 from .linalg import Mat2, Z2
 from .simplify import id_simp, tcount
 from .rules import apply_rule, pivot, match_spider_parallel, spider
@@ -30,6 +30,7 @@ from .circuit.gates import Gate, ParityPhase, CNOT, HAD, ZPhase, XPhase, CZ, CX,
 from .graph.base import BaseGraph, VT, ET
 
 from typing import List, Optional, Tuple, Dict, Set, Union, Iterator
+from typing_extensions import Literal
 
 
 def bi_adj(g: BaseGraph[VT,ET], vs:List[VT], ws:List[VT]) -> Mat2:
@@ -702,16 +703,16 @@ def extract_circuit(
 
 
 def extract_simple(g: BaseGraph[VT, ET], up_to_perm: bool = True) -> Circuit:
-    """A simplified circuit extractor that works on graphs with a causal flow (e.g. graphs arising
-    from circuits via spider fusion).
+    """A simplified circuit extractor that works on graphs with a causal flow 
 
     Args:
         g: The graph to extract
         up_to_perm: If true, returns a circuit that is equivalent to the given graph up to a permutation of the inputs.
     """
-    circ = Circuit(g.qubit_count())
+    n_qubits = g.qubit_count()
+    circ = Circuit(n_qubits)
     progress = True
-    # inputs = g.inputs()
+    phases = g.phases()
     outputs = g.outputs()
     while progress:
         progress = False
@@ -766,8 +767,93 @@ def extract_simple(g: BaseGraph[VT, ET], up_to_perm: bool = True) -> Circuit:
                         progress = True
                         circ.prepend_gate(CX(control=q1,target=q2))
                         g.remove_edge(g.edge(v1,v2))
-
+        
+        if progress: continue
+        
+        front = {list(g.neighbors(o))[0]: q for q,o in enumerate(outputs)}
+        gadgets = []
+        parity_matrix_T = []
+        zphases = []
+        for v in g.vertices():
+            if v not in g.inputs() and v not in g.outputs() and g.vertex_degree(v)==1:
+                n = list(g.neighbors(v))[0]
+                if not (g.type(v) == VertexType.Z and g.type(n) == VertexType.Z): continue
+                if phases[n] not in (0,1): continue
+                if n in gadgets: continue
+                if n in g.inputs() or n in g.outputs(): continue
+                connected_vertices = set(g.neighbors(n)).difference({v})
+                if not connected_vertices <= set(front.keys()): continue
+                progress = True
+                gadgets.append(n)
+                gadgets.append(v)
+                if phases[n] == 1: zphases.append(-phases[v])
+                else: zphases.append(phases[v])
+                connected_qubits = list(map(front.get, connected_vertices))
+                parity_matrix_T.append([1 if q in connected_qubits else 0 for q in range(n_qubits)])
+        
+        if progress:
+            phase_poly_circ = phase_poly_synth(n_qubits, parity_matrix_T, zphases)
+            g.remove_vertices(gadgets)
+            circ = phase_poly_circ + circ
+            
     return graph_to_swaps(g, up_to_perm) + circ
+
+def phase_poly_synth(n_qubits: int, parity_matrix_T: List[List[Literal[0,1]]], zphases: List[FractionLike]) -> Circuit:
+    """Converts a series of phase polynomials into a circuit, utilising Gray codes.
+    Based on pseudocode in https://arxiv.org/abs/2004.06052
+
+    Args:
+        n_qubits (int): number of qubits
+        parity_matrix_T (List[List[Literal[0,1]]]): transpose of parity matrix describing support of phase polynomial
+        zphases (List[FractionLike]): list of phases belonging to each phase polynomial
+
+    Returns: Circuit
+    """
+    circ = Circuit(n_qubits)
+    undo_circ = Circuit(n_qubits)
+    parity_matrix = [list(e) for e in zip(*parity_matrix_T)]
+
+    def reduce_columns(columns: List[int]) -> List[int]:
+        reduced_cols = []
+        for col in columns:
+            if len([row for row in parity_matrix if row[col]==1])==1:
+                qubit = max(range(len(parity_matrix)), key=lambda q: parity_matrix[q][col])
+                circ.add_gate(ZPhase(qubit, zphases[col]))
+            else: reduced_cols.append(col)
+        return reduced_cols
+
+    def base_recursion_step(cols: List[int], rows: List[int]) -> None:
+        if not cols or not rows: return
+        chosen_row = max(rows, key=lambda row: max([len([col for col in cols if parity_matrix[row][col]==0]),len([col for col in cols if parity_matrix[row][col]==1])]))
+        cols0 = [col for col in cols if parity_matrix[chosen_row][col]==0]
+        cols1 = [col for col in cols if parity_matrix[chosen_row][col]==1]
+        base_recursion_step(cols0, [row for row in rows if row != chosen_row])
+        ones_recursion_step(cols1, rows, chosen_row)
+
+    def ones_recursion_step(cols: List[int], rows: List[int], chosen_row: int) -> None:
+        if not cols: return
+        if len(rows)==1 and chosen_row in rows: return
+        other_rows = [row for row in rows if row != chosen_row]
+        n = max(other_rows, key=lambda row: len([col for col in cols if parity_matrix[row][col]==1]))
+        if len([col for col in cols if parity_matrix[n][col]==1]) > 0:
+            place_CNOT(chosen_row, n)
+            cols = reduce_columns(cols)
+        else:
+            place_CNOT(n, chosen_row)
+            place_CNOT(chosen_row, n)
+        cols0 = [col for col in cols if parity_matrix[chosen_row][col]==0]
+        cols1 = [col for col in cols if parity_matrix[chosen_row][col]==1]
+        base_recursion_step(cols0, other_rows)
+        ones_recursion_step(cols1, rows, chosen_row)
+            
+    def place_CNOT(control: int,target: int) -> None:
+        circ.add_gate(CNOT(control, target))
+        undo_circ.prepend_gate(CNOT(control, target))
+        parity_matrix[control] = [sum(x)%2 for x in zip(parity_matrix[control], parity_matrix[target])]
+    
+    columns = reduce_columns(list(range(len(parity_matrix[0]))))
+    base_recursion_step(columns, list(range(n_qubits)))
+    return circ + undo_circ
 
 
 def graph_to_swaps(g: BaseGraph[VT, ET], no_swaps: bool = False) -> Circuit:
