@@ -390,17 +390,19 @@ def match_pivot_gadget(
         if any(types[w]!=VertexType.Z for w in v0n): continue
         if any(types[w]!=VertexType.Z for w in v1n): continue
         # Both v0 and v1 are interior
+        # gadgetization now applied in rewrite function pivot_gadget
         
-        v = g.add_vertex(VertexType.Z,-2,rs[v0],v1a)
-        g.set_phase(v1, 0)
-        g.set_qubit(v0,-1)
-        g.update_phase_index(v1,v)
-        edge_list.append(g.edge(v,v1))
+        # v = g.add_vertex(VertexType.Z,-2,rs[v0],v1a)
+        # g.set_phase(v1, 0)
+        # g.set_qubit(v0,-1)
+        # g.update_phase_index(v1,v)
+        # edge_list.append(g.edge(v,v1))
+        # m.append((v0,v1,[],[v]))
         
-        m.append((v0,v1,[],[v]))
+        m.append((v0,v1,[],[]))
         i += 1
         for c in discard_edges: candidates.discard(c)
-    g.add_edges(edge_list,EdgeType.SIMPLE)
+    # g.add_edges(edge_list,EdgeType.SIMPLE)
     return m
 
 
@@ -415,18 +417,15 @@ def match_pivot_boundary(
     else: candidates = g.vertex_set()
     types = g.types()
     phases = g.phases()
-    rs = g.rows()
     
-    edge_list = []
     consumed_vertices : Set[VT] = set()
     i = 0
     m: List[MatchPivotType[VT]] = []
-    inputs = g.inputs()
     while (num == -1 or i < num) and len(candidates) > 0:
         v = candidates.pop()
         if types[v] != VertexType.Z or phases[v] not in (0,1) or g.is_ground(v):
             continue
-
+        
         good_vert = True
         w = None
         bound = None
@@ -459,14 +458,16 @@ def match_pivot_boundary(
                 w = n
                 bound = boundaries[0]
         if not good_vert or w is None: continue
-        if bound in inputs: mod = 0.5
-        else: mod = -0.5
-        v1 = g.add_vertex(VertexType.Z,-2,rs[w]+mod,phases[w])
-        v2 = g.add_vertex(VertexType.Z,-1,rs[w]+mod,0)
-        g.set_phase(w, 0)
-        g.update_phase_index(w,v1)
-        edge_list.append(g.edge(w,v2))
-        edge_list.append(g.edge(v1,v2))
+        # Graph transformations now applied in rewrite function boundary_pivot
+        
+        # if bound in inputs: mod = 0.5
+        # else: mod = -0.5
+        # v1 = g.add_vertex(VertexType.Z,-2,rs[w]+mod,phases[w])
+        # v2 = g.add_vertex(VertexType.Z,-1,rs[w]+mod,0)
+        # g.set_phase(w, 0)
+        # g.update_phase_index(w,v1)
+        # edge_list.append(g.edge(w,v2))
+        # edge_list.append(g.edge(v1,v2))
         for n in g.neighbors(v): consumed_vertices.add(n)
         for n in g.neighbors(w): consumed_vertices.add(n)
         assert bound is not None
@@ -474,8 +475,7 @@ def match_pivot_boundary(
         i += 1
         for n in g.neighbors(v): candidates.discard(n)
         for n in g.neighbors(w): candidates.discard(n)
-
-    g.add_edges(edge_list, EdgeType.HADAMARD)
+    # g.add_edges(edge_list, EdgeType.HADAMARD)
     return m
 
 def pivot(g: BaseGraph[VT,ET], matches: List[MatchPivotType[VT]]) -> RewriteOutputType[ET,VT]:
@@ -490,7 +490,6 @@ def pivot(g: BaseGraph[VT,ET], matches: List[MatchPivotType[VT]]) -> RewriteOutp
     rem_verts: List[VT] = []
     rem_edges: List[ET] = []
     etab: Dict[ET,List[int]] = dict()
-
 
     for m in matches:
         # compute:
@@ -553,6 +552,47 @@ def pivot(g: BaseGraph[VT,ET], matches: List[MatchPivotType[VT]]) -> RewriteOutp
             etab[e] = [0,nhe+1]
 
     return (etab, rem_verts, rem_edges, True)
+
+def boundary_pivot(g: BaseGraph[VT,ET], matches: List[MatchPivotType[VT]]) -> RewriteOutputType[ET,VT]:
+    """Performs the graph transformations required on the boundary vertex before applying pivots.
+    ``m[0]`` : interior pauli vertex
+    ``m[1]`` : boundary vertex to pivot on
+    ``m[2]`` : list of zero or one boundaries adjacent to ``m[0]``.
+    ``m[3]`` : list of zero or one boundaries adjacent to ``m[1]``.
+    """
+    rs = g.rows()
+    edge_list = []
+    for m in matches:
+        if m[3][0] in g.inputs(): mod = 0.5
+        else: mod = -0.5
+        v1 = g.add_vertex(VertexType.Z,-2,rs[m[1]]+mod,g.phases()[m[1]])
+        v2 = g.add_vertex(VertexType.Z,-1,rs[m[1]]+mod,0)
+        g.set_phase(m[1], 0)
+        g.update_phase_index(m[1],v1)
+        edge_list.append(g.edge(m[1],v2))
+        edge_list.append(g.edge(v1,v2))
+    g.add_edges(edge_list, EdgeType.HADAMARD)
+    return pivot(g, matches)
+        
+def pivot_gadget(g: BaseGraph[VT,ET], matches: List[MatchPivotType[VT]]) -> RewriteOutputType[ET,VT]:
+    """Performs the gadgetizations required before applying pivots.
+    ``m[0]`` : interior pauli vertex
+    ``m[1]`` : interior non-pauli vertex to gadgetize
+    ``m[2]`` : list of zero or one boundaries adjacent to ``m[0]``.
+    ``m[3]`` : list of zero or one boundaries adjacent to ``m[1]``.
+    """
+    edge_list = []
+    rs = g.rows()
+    updated_matches = []
+    for i, m in enumerate(matches):
+        v = g.add_vertex(VertexType.Z,-2,rs[m[0]],g.phases()[m[1]])
+        updated_matches.append((m[0],m[1],[],[v]))
+        g.set_phase(m[1], 0)
+        g.set_qubit(m[0],-1)
+        g.update_phase_index(m[1],v)
+        edge_list.append(g.edge(v,m[1]))
+    g.add_edges(edge_list, EdgeType.SIMPLE)
+    return pivot(g, updated_matches)
 
 MatchLcompType = Tuple[VT,List[VT]]
 
