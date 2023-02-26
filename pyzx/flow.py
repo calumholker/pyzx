@@ -128,7 +128,7 @@ def causal_flow(
 ):
     """Compute the causal flow of a diagram in graph-like form.
 
-    Based on an algorithm by Niel de Beaudrap.
+    Based on an algorithm by Niel de Beaudrap, extended to include phase gadgets.
     See https://doi.org/10.48550/arXiv.quant-ph/0603072
     """
     gadgets, gadget_connections = find_gadgets(g)
@@ -146,11 +146,21 @@ def causal_flow(
     
     for n in gadgets.keys():
       connecting = gadget_connections[n]
-      try: connecting_prevs = [F.prev(w) for w in connecting if w not in g.inputs()]
-      except: return None # gadgets are connected
-      for v in connecting:
-        for s in connecting_prevs:
-          if (not sup[(P[v],s)] <= L[v]) and (sup[(P[s],v)] <= L[s]): return None #if v is BEFORE s in ordering (not equal)
+      for m in gadgets.keys():
+        connecting_m = gadget_connections[m]
+        first = None
+        for v_n in connecting:
+          for v_m in connecting_m:
+            if v_n in g.inputs() or v_m in g.inputs(): continue
+            if v_n or v_m not in P.keys(): return None # gadgets are connected
+            if v_n != v_m:
+              if (not sup[(P[v_n],F.prev(v_m))] <= L[v_n]) and (sup[(P[F.prev(v_m)],v_n)] <= L[F.prev(v_m)]): #v_n < F.prev(v_m)
+                if first == 'm': return None
+                first = 'n'
+              if (not sup[(P[v_m],F.prev(v_n))] <= L[v_m]) and (sup[(P[F.prev(v_n)],v_m)] <= L[F.prev(v_n)]): #v_m < F.prev(v_n)
+                if first == 'n': return None
+                first = 'm'
+          
     return f,P,L,sup
   
 def find_gadgets(g:BaseGraph[VT,ET]):
