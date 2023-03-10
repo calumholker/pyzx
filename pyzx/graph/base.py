@@ -77,10 +77,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
 
     def __init__(self) -> None:
         self.scalar: Scalar = Scalar()
-        # self.inputs: List[VT] = []
-        # self.outputs: List[VT] = []
-        #Data necessary for phase tracking for phase teleportation
-        self.track_phases: bool = False
+        self.track_phases: bool = False #Data necessary for phase tracking for phase teleportation
         self.phase_index : Dict[VT,int] = dict() # {vertex:index tracking its phase for phase teleportation}
         self.phase_master: Optional['simplify.Simplifier'] = None
         self.phase_mult: Dict[int,Literal[1,-1]] = dict()
@@ -89,6 +86,10 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         # merge_vdata(v0,v1) is an optional, custom function for merging
         # vdata of v1 into v0 during spider fusion etc.
         self.merge_vdata: Optional[Callable[[VT,VT], None]] = None
+        
+        # for storing causal flow
+        self.flow_successor: Dict[VT, VT] = dict()
+        self.flow_predecessor: Dict[VT, VT] = dict()
 
     def __str__(self) -> str:
         return "Graph({} vertices, {} edges)".format(
@@ -808,7 +809,36 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
 
     def vertex_from_phase_index(self, i: int) -> VT:
         return list(self.phase_index.keys())[list(self.phase_index.values()).index(i)]
+    
+    def successor(self, vertex):
+        return self.flow_successor[vertex]
+    def predecessor(self, vertex):
+        return self.flow_predecessor[vertex]
+    def update_flow(self, flow):
+        self.flow_successor = flow
+        self.flow_predecessor = {v2: v1 for v1, v2 in flow.items()}
 
+    def replace(self, g):
+        self.graph = g.graph.copy()
+        self._vindex = g._vindex
+        self.nedges = g.nedges
+        self.ty = g.ty.copy()
+        self._phase = g._phase.copy()
+        self._qindex = g._qindex.copy()
+        self._maxq = g._maxq
+        self._rindex = g._rindex.copy()
+        self._maxr = g._maxr
+        self._vdata = g._vdata.copy()
+        self.scalar = g.scalar.copy()
+        self._inputs = tuple(list(g._inputs))
+        self._outputs = tuple(list(g._outputs))
+        self.track_phases = g.track_phases
+        self.phase_index = g.phase_index.copy()
+        self.phase_master = g.phase_master
+        self.phase_mult = g.phase_mult.copy()
+        self.max_phase_index = g.max_phase_index
+        self.flow_successor = g.flow_successor.copy()
+        self.flow_predecessor = g.flow_predecessor.copy()
 
     def remove_vertices(self, vertices: Iterable[VT]) -> None:
         """Removes the list of vertices from the graph."""

@@ -65,6 +65,8 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         cpy.phase_master = self.phase_master
         cpy.phase_mult = self.phase_mult.copy()
         cpy.max_phase_index = self.max_phase_index
+        cpy.flow_successor = self.flow_successor.copy()
+        cpy.flow_predecessor = self.flow_predecessor.copy()
         return cpy
 
     def vindex(self): return self._vindex
@@ -141,6 +143,8 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
             except: pass
             try: del self.phase_index[v]
             except: pass
+            self.flow_successor = {v1: v2 for v1, v2 in self.flow_successor.items() if v1 != v and v2 != v}
+            self.flow_predecessor = {v1: v2 for v1, v2 in self.flow_predecessor.items() if v1 != v and v2 != v}
             self._grounds.discard(v)
             self._vdata.pop(v,None)
         self._vindex = max(self.vertices(),default=0) + 1
