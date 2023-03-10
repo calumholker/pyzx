@@ -79,6 +79,83 @@ def gflow(
         else:
             processed.update(correct)
             k += 1
+            
+def causal_flow(
+    g: BaseGraph[VT, ET],
+    update_graph: bool = False
+):
+    """Compute the causal flow of a diagram in graph-like form.
+
+    Based on an algorithm by Niel de Beaudrap, extended to include phase gadgets.
+    See https://doi.org/10.48550/arXiv.quant-ph/0603072
+    """
+    gadgets, gadget_connections = find_gadgets(g)
+    if len(gadgets) == 0:
+      flow = fast_flow(g)
+      if flow:
+        successor_function = flow[1]
+        if update_graph: g.update_flow(successor_function)
+        return True
+      return False
+    
+    g_without_gadgets = remove_gadgets(g,gadgets)
+    io_vertices = []
+    for v in g_without_gadgets.inputs():
+      if v in g_without_gadgets.outputs():
+        io_vertices.append(v)
+        g_without_gadgets.remove_vertex(v)
+    if len(g_without_gadgets.vertices()) == 0:
+      return dict()
+    
+    k = g_without_gadgets.num_inputs()
+    n = g_without_gadgets.num_vertices()
+    if g_without_gadgets.num_edges() > (k*n - comb(k+1,2)): return False
+    path_cover = BuildPathCover(g_without_gadgets)
+    if not path_cover: return False
+    successor_function, P, L = GetChainDecomp(g_without_gadgets,path_cover)
+    sup = ComputeSuprema(g_without_gadgets,successor_function,P,L)
+    if not sup: return False
+    
+    for n in gadgets.keys():
+      connecting = gadget_connections[n]
+      for m in gadgets.keys():
+        connecting_m = gadget_connections[m]
+        first = None
+        for v_n in connecting:
+          for v_m in connecting_m:
+            if v_n == v_m: continue
+            if v_n not in P.keys() or v_m not in P.keys(): return False # gadgets are connected
+            if n == m and P[v_n] == P[v_m]: return False
+            if v_n in g.inputs() or v_m in g.inputs(): continue
+            if sup[(P[path_cover.prev(v_m)],v_n)] <= L[path_cover.prev(v_m)]: #v_n < F.prev(v_m)
+              if first == 'm': return False
+              first = 'n'
+            if sup[(P[path_cover.prev(v_n)],v_m)] <= L[path_cover.prev(v_n)]: #v_m < F.prev(v_n)
+              if first == 'n': return False
+              first = 'm'
+    
+    if update_graph: g.update_flow(successor_function)
+    return True
+  
+def find_gadgets(g:BaseGraph[VT,ET]) -> Tuple[Dict[VT,VT],Dict[VT,Set[VT]]]:
+  gadgets = dict()
+  gadget_connections = dict()
+  phases = g.phases()
+  for v in g.vertices():
+    if v not in g.inputs() and v not in g.outputs() and g.vertex_degree(v)==1:
+      n = list(g.neighbors(v))[0]
+      if not (g.type(v) == VertexType.Z and g.type(n) == VertexType.Z): continue
+      if phases[n] not in (0,1): continue
+      if n in gadgets: continue
+      if n in g.inputs() or n in g.outputs(): continue
+      gadgets[n] = v
+      gadget_connections[n] = frozenset(set(g.neighbors(n)).difference({v}))
+  return gadgets, gadget_connections
+
+def remove_gadgets(g:BaseGraph[VT,ET], gadgets:Dict[VT,VT]) -> BaseGraph[VT,ET]:
+  g_without = g.clone()
+  g_without.remove_vertices(list(gadgets.keys())+list(gadgets.values()))
+  return g_without
 
 def fast_flow(
   g: BaseGraph[VT, ET]
@@ -117,66 +194,11 @@ def fast_flow(
         if not Out_prime:
             if processed == vertices:
                 return order, flow, k
-            return None
+            return False
         else:
             processed |= Out_prime
             correctors = (correctors.difference(C_prime)) | (Out_prime.intersection(vertices.difference(inputs)))
             k += 1
-            
-def causal_flow(
-    g: BaseGraph[VT, ET]
-):
-    """Compute the causal flow of a diagram in graph-like form.
-
-    Based on an algorithm by Niel de Beaudrap, extended to include phase gadgets.
-    See https://doi.org/10.48550/arXiv.quant-ph/0603072
-    """
-    gadgets, gadget_connections = find_gadgets(g)
-    geo = g.clone()
-    geo.remove_vertices(list(gadgets.keys())+list(gadgets.values()))
-    
-    k = geo.num_inputs()
-    n = geo.num_vertices()
-    if geo.num_edges() > (k*n - comb(k+1,2)): return None
-    F = BuildPathCover(geo)
-    if not F: return None
-    f, P, L = GetChainDecomp(geo,F)
-    sup = ComputeSuprema(geo,f,P,L)
-    if not sup: return None
-    
-    for n in gadgets.keys():
-      connecting = gadget_connections[n]
-      for m in gadgets.keys():
-        connecting_m = gadget_connections[m]
-        first = None
-        for v_n in connecting:
-          for v_m in connecting_m:
-            if v_n in g.inputs() or v_m in g.inputs(): continue
-            if v_n or v_m not in P.keys(): return None # gadgets are connected
-            if v_n != v_m:
-              if (not sup[(P[v_n],F.prev(v_m))] <= L[v_n]) and (sup[(P[F.prev(v_m)],v_n)] <= L[F.prev(v_m)]): #v_n < F.prev(v_m)
-                if first == 'm': return None
-                first = 'n'
-              if (not sup[(P[v_m],F.prev(v_n))] <= L[v_m]) and (sup[(P[F.prev(v_n)],v_m)] <= L[F.prev(v_n)]): #v_m < F.prev(v_n)
-                if first == 'n': return None
-                first = 'm'
-          
-    return f,P,L,sup
-  
-def find_gadgets(g:BaseGraph[VT,ET]):
-  gadgets = dict()
-  gadget_connections = dict()
-  phases = g.phases()
-  for v in g.vertices():
-    if v not in g.inputs() and v not in g.outputs() and g.vertex_degree(v)==1:
-      n = list(g.neighbors(v))[0]
-      if not (g.type(v) == VertexType.Z and g.type(n) == VertexType.Z): continue
-      if phases[n] not in (0,1): continue
-      if n in gadgets: continue
-      if n in g.inputs() or n in g.outputs(): continue
-      gadgets[n] = v
-      gadget_connections[n] = frozenset(set(g.neighbors(n)).difference({v}))
-  return gadgets, gadget_connections
 
 class dipaths:
   def __init__(self, vertices:List[VT]) -> None:
