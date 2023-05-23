@@ -77,11 +77,13 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
 
     def __init__(self) -> None:
         self.scalar: Scalar = Scalar()
-        self.track_phases: bool = False #Data necessary for phase tracking for phase teleportation
-        self.phase_index : Dict[VT,int] = dict() # {vertex:index tracking its phase for phase teleportation}
-        self.phase_master: Optional['simplify.Simplifier'] = None
-        self.phase_mult: Dict[int,Literal[1,-1]] = dict()
-        self.max_phase_index: int = -1
+        
+        # simplifier for circuit simplifications
+        self.simplifier: Optional['simplify.Simplifier'] = None
+        self.teleport_mode = False
+        self.phantom_vertices: Dict[VT, VT] = dict()
+        self.teleported_phases = []
+        self.vertices_to_update = []
 
         # merge_vdata(v0,v1) is an optional, custom function for merging
         # vdata of v1 into v0 during spider fusion etc.
@@ -135,7 +137,6 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         if (backend is None):
             backend = type(self).backend
         g = Graph(backend = backend)
-        g.track_phases = self.track_phases
         g.scalar = self.scalar.copy()
         g.merge_vdata = self.merge_vdata
         mult:int = 1
@@ -661,10 +662,6 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
             self.set_phase(v, phase)
         if ground:
             self.set_ground(v, True)
-        if self.track_phases:
-            self.max_phase_index += 1
-            self.phase_index[v] = self.max_phase_index
-            self.phase_mult[self.max_phase_index] = 1
         return v
 
     def add_edges(self, edges: Iterable[ET], edgetype:EdgeType.Type=EdgeType.SIMPLE) -> None:
@@ -778,37 +775,171 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         """Like add_edge, but does the right thing if there is an existing edge."""
         self.add_edge_table({e : [1,0] if edgetype == EdgeType.SIMPLE else [0,1]})
 
-    def set_phase_master(self, m: 'simplify.Simplifier') -> None:
+    def set_simplifier(self, m: 'simplify.Simplifier', reduce_mode) -> None:
         """Points towards an instance of the class :class:`~pyzx.simplify.Simplifier`.
         Used for phase teleportation."""
-        self.phase_master = m
-
-    def update_phase_index(self, old:VT, new:VT) -> None:
-        """When a phase is moved from a vertex to another vertex,
-        we need to tell the phase_teleportation algorithm that this has happened.
-        This function does that. Used in some of the rules in `simplify`."""
-        if not self.track_phases: return
-        i = self.phase_index[old]
-        self.phase_index[old] = self.phase_index[new]
-        self.phase_index[new] = i
-
-    def fuse_phases(self, p1: VT, p2: VT) -> None:
-        if p1 not in self.phase_index or p2 not in self.phase_index: 
+        self.simplifier = m
+        if reduce_mode:
+            for vertex_dict in m.teleported_phases:
+                if len(vertex_dict) == 1: continue
+                for v in vertex_dict: self.set_phase(v,0)
+                if any(phase == 0 for phase in vertex_dict.values()):
+                    self.teleported_phases.append({v:0 for v in vertex_dict})
+                    continue
+                if sum([p.denominator <= 2 for p in vertex_dict.values()]) != 1:
+                    self.teleported_phases.append(vertex_dict.copy())
+                    continue
+                v, p = [(v,p) for v,p in vertex_dict.items() if p.denominator <= 2][0]
+                self.set_phase(v,p)
+                self.teleported_phases.append({v:0 for v in vertex_dict})
+        else: self.teleport_mode = True
+    
+    def phase_negate(self, vertex):
+        if not self.teleport_mode: return
+        vertex = self.phantom_vertex(vertex)
+        if vertex not in self.simplifier.non_clifford_vertices: return
+        self.simplifier.phase_mult[vertex] *= -1
+    
+    def phantom_vertex(self, vertex):
+        try: vertex = self.phantom_vertices[vertex]
+        except: pass
+        return vertex
+    
+    def fuse_phases(self,vertex_1,vertex_2):
+        if not self.teleport_mode:
+            for vertex_dict in self.teleported_phases[:]:
+                if vertex_2 in vertex_dict:
+                    new_vertex_dict = {v:p for v,p in vertex_dict.items() if v != vertex_2}
+                    self.teleported_phases.remove(vertex_dict)
+                    if vertex_1 in vertex_dict:
+                        if vertex_dict[vertex_2] == 0:
+                            new_vertex_dict[vertex_1] = vertex_dict[vertex_2]
+                            self.phantom_vertices[vertex_1] = self.phantom_vertex(vertex_2)
+                        elif vertex_dict[vertex_2].denominator <= 2 and vertex_dict[vertex_1] != 0: 
+                            new_vertex_dict[vertex_1] = vertex_dict[vertex_2]
+                            self.phantom_vertices[vertex_1] = self.phantom_vertex(vertex_2)
+                    else:
+                        new_vertex_dict[vertex_1] = vertex_dict[vertex_2]
+                        self.phantom_vertices[vertex_1] = self.phantom_vertex(vertex_2)
+                    
+                    if len(new_vertex_dict) == 1:
+                        vertex, p = next(iter(new_vertex_dict.items()))
+                        self.add_to_phase(vertex,p)
+                    elif sum([p.denominator <= 2 for p in new_vertex_dict.values()]) == 1:
+                        vertex, p = [(vertex,p) for vertex,p in new_vertex_dict.items() if p.denominator <= 2][0]
+                        self.add_to_phase(vertex, p)
+                        self.teleported_phases.append({vertex:0 for vertex in new_vertex_dict})
+                    else: self.teleported_phases.append(new_vertex_dict)
+                    self.vertices_to_update.extend([vertex for vertex in new_vertex_dict])
             return
-        if self.phase_master is not None: 
-            self.phase_master.fuse_phases(self.phase_index[p1],self.phase_index[p2])
-        self.phase_index[p2] = self.phase_index[p1]
+        
+        vertex_1 = self.phantom_vertex(vertex_1)
+        vertex_2 = self.phantom_vertex(vertex_2)
+        self.simplifier.fuse_phases(vertex_1,vertex_2)
+        if vertex_2 in self.simplifier.non_clifford_vertices and vertex_1 not in self.simplifier.non_clifford_vertices:
+            self.phantom_vertices[vertex_1] = vertex_2
 
-    def phase_negate(self, v: VT) -> None:
-        if v not in self.phase_index: return
-        index = self.phase_index[v]
-        mult = self.phase_mult[index]
-        if mult == 1: self.phase_mult[index] = -1
-        else: self.phase_mult[index] = 1
-        #self.phase_mult[index] = -1*mult 
+    def place_remaining_phases(self):
+        for vertex_dict in self.teleported_phases:
+            if any(p == 0 for p in vertex_dict.values()): continue
+            if any(p.denominator <= 2 for p in vertex_dict.values()):
+                v,p = [(v,p) for v,p in vertex_dict.items() if p.denominator <= 2][0]
+            else: v,p = next(iter(vertex_dict.items()))
+            self.add_to_phase(v,p)
+        self.teleported_phases = [] 
+    
+    def gadgetize_vertex(self, new_vertex, old_vertex):
+        if not self.teleport_mode: return
+        old_vertex = self.phantom_vertex(old_vertex)
+        self.phantom_vertices[new_vertex] = old_vertex
+    
+    def unfuse_vertex(self, new_vertex, old_vertex):
+        if self.teleport_mode: return
+        for vertex_dict in self.teleported_phases[:]:
+            if old_vertex in vertex_dict: 
+                vertex_dict[new_vertex] = vertex_dict.pop(old_vertex)
+                self.phantom_vertices[new_vertex] = self.phantom_vertex(old_vertex)
 
-    def vertex_from_phase_index(self, i: int) -> VT:
-        return list(self.phase_index.keys())[list(self.phase_index.values()).index(i)]
+    def fix_phase(self, v, phase):
+        if self.teleport_mode: return
+        target_phase = phase - self.phase(v)
+        for vertex_dict in self.teleported_phases[:]:
+            if v in vertex_dict:
+                if target_phase == 0:
+                    if vertex_dict[v].denominator <= 2 and sum([p.denominator <= 2 for p in vertex_dict.values()]) == 2:
+                        vertex, p = [(vertex,p) for vertex,p in vertex_dict.items() if p.denominator <= 2 and vertex != v][0]
+                        self.add_to_phase(vertex, p)
+                        self.teleported_phases.remove(vertex_dict)
+                        if len(vertex_dict) > 2: self.teleported_phases.append({vertex:0 for vertex in vertex_dict if vertex != v})
+                        self.vertices_to_update.extend([vertex for vertex in vertex_dict])
+                        continue
+                    del vertex_dict[v]
+                    if len(vertex_dict) == 1:
+                        vertex, p = next(iter(vertex_dict.items()))
+                        self.add_to_phase(vertex,p)
+                        self.teleported_phases.remove(vertex_dict)
+                    self.vertices_to_update.extend([vertex for vertex in vertex_dict])
+                    return
+                
+                self.teleported_phases.remove(vertex_dict)
+                self.add_to_phase(v, target_phase)
+                
+                if target_phase == vertex_dict[v]:
+                    if len(vertex_dict) > 2: self.teleported_phases.append({vertex: 0 for vertex in vertex_dict if vertex != v})
+                    self.vertices_to_update.extend([vertex for vertex in vertex_dict])
+                    return
+                
+                new_vertex_dict = dict()
+                for vertex in vertex_dict:
+                    if vertex == v: continue
+                    m = self.simplifier.fusion_mult[self.phantom_vertex(vertex)][self.phantom_vertex(v)]
+                    new_vertex_dict[vertex] = vertex_dict[vertex] - m * target_phase
+                
+                if len(new_vertex_dict) == 1:
+                    vertex, p = next(iter(new_vertex_dict.items()))
+                    self.add_to_phase(vertex,p)
+                elif sum([p.denominator <= 2 for p in new_vertex_dict.values()]) == 1:
+                    vertex, p = [(vertex,p) for vertex,p in new_vertex_dict.items() if p.denominator <= 2][0]
+                    self.add_to_phase(vertex, p)
+                    if len(new_vertex_dict) > 1: self.teleported_phases.append({vertex:0 for vertex in vertex_dict})
+                else: self.teleported_phases.append(new_vertex_dict)
+
+                self.vertices_to_update.extend([vertex for vertex in new_vertex_dict])
+                return
+
+    def check_phase(self, v, phase):
+        target_phase = phase - self.phase(v)
+        for vertex_dict in self.teleported_phases:
+            if v in vertex_dict:
+                if vertex_dict[v] == target_phase: return 1
+                return True
+        return target_phase == 0
+
+    def check_two_pauli_phases(self, v1, v2):
+        vp1 = self.phase(v1)
+        vp2 = self.phase(v2)
+        pauli = [False,False]
+        for vertex_dict in self.teleported_phases:
+            if v1 in vertex_dict and v2 in vertex_dict:
+                if vertex_dict[v1] == -vp1: pauli[0] = 0
+                elif vertex_dict[v1] == 1-vp1: pauli[0] = 1
+                if vertex_dict[v2] == -vp2: pauli[1] = 0
+                elif vertex_dict[v2] == 1-vp2: pauli[1] = 1
+                if len(vertex_dict) > 2:
+                    if pauli[0] is False: pauli[0] = vp1 if vp1 in (0,1) else 0
+                    if pauli[1] is False: pauli[1] = vp2 if vp2 in (0,1) else 0
+                return pauli
+            if v1 in vertex_dict:
+                if vertex_dict[v1] == -vp1: pauli[0] = 0
+                elif vertex_dict[v1] == 1-vp1: pauli[0] = 1
+                else: pauli[0] = vp1 if vp1 in (0,1) else 0
+            elif v2 in vertex_dict:
+                if vertex_dict[v2] == -vp2: pauli[1] = 0
+                elif vertex_dict[v2] == 1-vp2: pauli[1] = 1
+                else: pauli[1] = vp2 if vp2 in (0,1) else 0
+        if pauli[0] is False: pauli[0] = vp1 if vp1 in (0,1) else False
+        if pauli[1] is False: pauli[1] = vp2 if vp2 in (0,1) else False
+        return pauli
     
     def successor(self, vertex):
         return self.flow_successor[vertex]
@@ -832,11 +963,11 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.scalar = g.scalar.copy()
         self._inputs = tuple(list(g._inputs))
         self._outputs = tuple(list(g._outputs))
-        self.track_phases = g.track_phases
-        self.phase_index = g.phase_index.copy()
-        self.phase_master = g.phase_master
-        self.phase_mult = g.phase_mult.copy()
-        self.max_phase_index = g.max_phase_index
+        self.simplifier = g.simplifier
+        self.phantom_vertices = g.phantom_vertices.copy()
+        self.vertices_to_update = g.vertices_to_update.copy()
+        self.teleported_phases = [d.copy() for d in g.teleported_phases]
+        self.teleport_mode = g.teleport_mode
         self.flow_successor = g.flow_successor.copy()
         self.flow_predecessor = g.flow_predecessor.copy()
 

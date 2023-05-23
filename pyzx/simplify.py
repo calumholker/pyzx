@@ -33,6 +33,7 @@ from .rules import *
 from .flow import *
 from .graph.base import BaseGraph, VT, ET
 from .circuit import Circuit
+from .drawing import draw
 
 class Stats(object):
     def __init__(self) -> None:
@@ -58,7 +59,7 @@ def simp(
     match: Callable[..., List[MatchObject]],
     rewrite: Callable[[BaseGraph[VT,ET],List[MatchObject]],RewriteOutputType[ET,VT]],
     matchf:Optional[Union[Callable[[ET],bool], Callable[[VT],bool]]]=None,
-    condition: Optional[Callable[...,bool]]=None,
+    max_num_rewrites:int = None,
     quiet:bool=False,
     stats:Optional[Stats]=None) -> int:
     """Helper method for constructing simplification strategies based on the rules present in rules_.
@@ -81,72 +82,53 @@ def simp(
     Returns:
         Number of iterations of ``rewrite`` that had to be applied before no more matches were found."""
 
-    i = 0
-    new_matches = True
-    while new_matches:
-        new_matches = False
-        if matchf: m = match(g, matchf)
-        else: m = match(g)
-        if len(m) == 0: break
+    num_iterations = 0
+    num_rewrites = 0
+    total_rewrites = 0
+    while True:
+        if matchf and max_num_rewrites: matches = match(g, matchf, num = -1 if max_num_rewrites == -1 else max_num_rewrites-total_rewrites)
+        elif matchf: matches = match(g, matchf) 
+        elif max_num_rewrites: matches = match(g, num = -1 if max_num_rewrites == -1 else max_num_rewrites-total_rewrites)
+        else: matches = match(g)
         
-        if not condition:
-            i += 1
-            if i == 1 and not quiet: print("{}: ".format(name),end='')
-            if not quiet: print(len(m), end='')
-            apply_rule(g,rewrite,m)
-            if not quiet: print('. ', end='')
-            new_matches = True
-            if stats is not None: stats.count_rewrites(name, len(m))
-            continue
+        num_rewrites = len(matches)
+        if num_rewrites == 0: break
         
-        valid_m = []
-        for mi in m:
-            check_g = g.clone()
-            apply_rule(check_g, rewrite, [mi])
-            if condition(check_g,g,name): valid_m.append(mi)
-        if len(valid_m) > 0:
-            i += 1
-            if i == 1 and not quiet: print("{}: ".format(name),end='')
-            checkAll_g = g.clone()
-            apply_rule(checkAll_g,rewrite,valid_m)
-            if condition(checkAll_g,g,name):
-                if not quiet: print(len(valid_m), end='')
-                apply_rule(g,rewrite,valid_m)
-            else:
-                for i,valid_m_i in enumerate(valid_m):
-                    check_g = g.clone()
-                    apply_rule(check_g, rewrite, [valid_m_i])
-                    if condition(check_g,g,name): apply_rule(g, rewrite, [valid_m_i])
-                    else:
-                        if not quiet: print(i+1, end='')
-                        break
-            if not quiet: print('. ', end='')
-            new_matches = True
-            if stats is not None: stats.count_rewrites(name, len(m))
-                
-    if not quiet and i>0: print(' {!s} iterations'.format(i))
-    return i
+        num_iterations += 1
+        total_rewrites += num_rewrites
+        if num_iterations == 1 and not quiet: print(f'{name}: ',end='')
+        if not quiet: print(num_rewrites, end='')
+        apply_rule(g,rewrite,matches)
+        if not quiet: print('. ', end='')
+        if stats is not None: stats.count_rewrites(name, num_rewrites)
+        if total_rewrites == max_num_rewrites: break
+        
+    if not quiet and num_iterations>0: print(f' {num_iterations} iterations')
+    return num_iterations
 
-def pivot_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, condition:Optional[Callable[...,bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'pivot_simp', match_pivot_parallel, pivot, matchf=matchf, condition=condition, quiet=quiet, stats=stats)
+def pivot_simp(g: BaseGraph[VT,ET], max_num_rewrites = None, matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'pivot_simp', match_pivot_parallel, pivot, matchf=matchf, max_num_rewrites = max_num_rewrites, quiet=quiet, stats=stats)
 
-def pivot_gadget_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, condition:Optional[Callable[...,bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'pivot_gadget_simp', match_pivot_gadget, pivot_gadget, matchf=matchf, condition=condition, quiet=quiet, stats=stats)
+def pivot_gadget_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'pivot_gadget_simp', match_pivot_gadget, pivot_gadget, matchf=matchf, quiet=quiet, stats=stats)
 
-def pivot_boundary_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, condition:Optional[Callable[...,bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'pivot_boundary_simp', match_pivot_boundary, boundary_pivot, matchf=matchf, condition=condition, quiet=quiet, stats=stats)
+def pivot_boundary_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'pivot_boundary_simp', match_pivot_boundary, pivot_gadget, matchf=matchf, quiet=quiet, stats=stats)
 
-def lcomp_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'lcomp_simp', match_lcomp_parallel, lcomp, matchf=matchf, condition=condition, quiet=quiet, stats=stats)
+def lcomp_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'lcomp_simp', match_lcomp_parallel, lcomp, matchf=matchf, quiet=quiet, stats=stats)
 
 def bialg_simp(g: BaseGraph[VT,ET], quiet:bool=False, stats: Optional[Stats]=None) -> int:
     return simp(g, 'bialg_simp', match_bialg_parallel, bialg, quiet=quiet, stats=stats)
 
-def spider_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'spider_simp', match_spider_parallel, spider, matchf=matchf, condition=condition, quiet=quiet, stats=stats)
+def spider_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'spider_simp', match_spider_parallel, spider, matchf=matchf, quiet=quiet, stats=stats)
 
-def id_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'id_simp', match_ids_parallel, remove_ids, matchf=matchf, condition=condition, quiet=quiet, stats=stats)
+def id_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'id_simp', match_ids_parallel, remove_ids, matchf=matchf, quiet=quiet, stats=stats)
+
+def id_fuse_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'id_fuse', match_id_fuse, id_fuse, matchf=matchf, quiet=quiet, stats=stats)
 
 def gadget_simp(g: BaseGraph[VT,ET], quiet:bool=False, stats:Optional[Stats]=None) -> int:
     return simp(g, 'gadget_simp', match_phase_gadgets, merge_phase_gadgets, quiet=quiet, stats=stats)
@@ -159,14 +141,24 @@ def copy_simp(g: BaseGraph[VT,ET], quiet:bool=False, stats:Optional[Stats]=None)
     WARNING: only use on maximally fused diagrams consisting solely of Z-spiders."""
     return simp(g, 'copy_simp', match_copy, apply_copy, quiet=quiet, stats=stats)
 
-def phase_free_simp(g: BaseGraph[VT,ET], quiet:bool=False, stats:Optional[Stats]=None) -> int:
+def phase_free_simp(g:BaseGraph[VT,ET], quiet:bool=False, stats:Optional[Stats]=None) -> int:
     '''Performs the following set of simplifications on the graph:
     spider -> bialg'''
     i1 = spider_simp(g, quiet=quiet, stats=stats)
     i2 = bialg_simp(g, quiet=quiet, stats=stats)
     return i1+i2
 
-def interior_clifford_simp(g: BaseGraph[VT,ET], quiet:bool=False, condition:Optional[Callable[...,bool]]=None, stats:Optional[Stats]=None) -> int:
+def basic_simp(g:BaseGraph[VT,ET], quiet: bool=True, stats:Optional[Stats] = None):
+    """Keeps doing the simplifications ``id_simp``, ``spider_simp`` until none of them can be applied anymore."""
+    j = 0
+    while True:
+        i1 = id_simp(g, quiet=quiet, stats=stats)
+        i2 = spider_simp(g, quiet=quiet, stats=stats)
+        if i1 + i2 == 0: break
+        j += 1
+    return j
+
+def interior_clifford_simp(g: BaseGraph[VT,ET], quiet:bool=False, stats:Optional[Stats]=None) -> int:
     """Keeps doing the simplifications ``id_simp``, ``spider_simp``,
     ``pivot_simp`` and ``lcomp_simp`` until none of them can be applied anymore."""
     spider_simp(g, quiet=quiet, stats=stats)
@@ -175,19 +167,19 @@ def interior_clifford_simp(g: BaseGraph[VT,ET], quiet:bool=False, condition:Opti
     while True:
         i1 = id_simp(g, quiet=quiet, stats=stats)
         i2 = spider_simp(g, quiet=quiet, stats=stats)
-        i3 = pivot_simp(g, quiet=quiet, stats=stats, condition=condition)
-        i4 = lcomp_simp(g, quiet=quiet, stats=stats, condition=condition)
+        i3 = pivot_simp(g, quiet=quiet, stats=stats)
+        i4 = lcomp_simp(g, quiet=quiet, stats=stats)
         if i1+i2+i3+i4==0: break
         i += 1
     return i
 
-def clifford_simp(g: BaseGraph[VT,ET], quiet:bool=True, condition:Optional[Callable[...,bool]]=None, stats:Optional[Stats]=None) -> int:
+def clifford_simp(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None) -> int:
     """Keeps doing rounds of :func:`interior_clifford_simp` and
     :func:`pivot_boundary_simp` until they can't be applied anymore."""
     i = 0
     while True:
-        i += interior_clifford_simp(g, quiet=quiet, stats=stats, condition=condition)
-        i2 = pivot_boundary_simp(g, quiet=quiet, stats=stats, condition=condition)
+        i += interior_clifford_simp(g, quiet=quiet, stats=stats)
+        i2 = pivot_boundary_simp(g, quiet=quiet, stats=stats)
         if i2 == 0:
             break
     return i
@@ -213,7 +205,7 @@ def reduce_scalar(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=No
         if not i7: break
         i += 1
     return i
-
+        
 def full_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None) -> None:
     """The main simplification routine of PyZX. It uses a combination of :func:`clifford_simp` and
     the gadgetization strategies :func:`pivot_gadget_simp` and :func:`gadget_simp`."""
@@ -232,83 +224,143 @@ def teleport_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=
     that does not change the graph structure of the resulting diagram.
     The only thing that is different in the output graph are the location and value of the phases."""
     s = Simplifier(g)
-    s.full_reduce(quiet=quiet, stats=stats)
-    return s.mastergraph
+    g2 = s.teleport_reduce(quiet=quiet)
+    return g2
 
-def flow_reduce_condition(g_after: BaseGraph[VT, ET], g_before: BaseGraph[VT, ET], rewrite: str) -> bool:
-    flow_preserving_rewrites = ['pivot_simp', 'pivot_gadget_simp', 'pivot_boundary_simp','lcomp_simp'] #rewrite rules for which we need to ensure flow is preserved
-    minimise_cz_rewrites = ['pivot_simp', 'lcomp_simp'] #rewrite rules for which we want to only apply if they reduce the number of cz gates
-    if rewrite in flow_preserving_rewrites and not causal_flow(g_after): return False
-    if rewrite in minimise_cz_rewrites and ((g_before.num_edges() - g_after.num_edges()) < (g_before.num_vertices() - g_after.num_vertices())): return False
-    return True
+def flow_reduce(g: BaseGraph[VT,ET], x=None ,quiet:bool=True) -> BaseGraph[VT,ET]:
+    s = Simplifier(g)
+    g2 = s.teleport_phases(x, quiet=quiet)
+    return g2
 
-def flow_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None) -> BaseGraph[VT,ET]:
-    g = teleport_reduce(g, quiet=quiet, stats=stats).copy()
-    g.track_phases = False
-    interior_clifford_simp(g, quiet=quiet, condition=flow_reduce_condition, stats=stats)
-    pivot_gadget_simp(g,quiet=quiet, condition=flow_reduce_condition, stats=stats)
-    while True:
-        clifford_simp(g,quiet=quiet, condition=flow_reduce_condition, stats=stats)
-        i = gadget_simp(g, quiet=quiet, stats=stats) # don't need condition for gadget_simp
-        interior_clifford_simp(g,quiet=quiet, condition=flow_reduce_condition, stats=stats)
-        j = pivot_gadget_simp(g,quiet=quiet, condition=flow_reduce_condition, stats=stats)
-        if i+j == 0: break
-    return g
-        
 class Simplifier(Generic[VT, ET]):
     """Class used for :func:`teleport_reduce`."""
     def __init__(self, g: BaseGraph[VT,ET]) -> None:
-        g.track_phases = True
-        self.mastergraph = g.copy()
-        self.simplifygraph = g.copy()
-        self.simplifygraph.set_phase_master(self)
-        self.phantom_phases: Dict[VT, Tuple[VT,int]] = dict()
+        self.master_graph = g.copy()
+        self.teleported_phases: List[Dict[VT, Set[FractionLike]]] = []
+        self.phase_mult = dict()
+        self.fusion_mult = dict()
+        self.non_clifford_vertices = []
+        for v in self.master_graph.vertices():
+            self.phase_mult[v] = 1
+            self.fusion_mult[v] = dict()
+            if self.master_graph.phase(v).denominator > 2:
+                self.teleported_phases.append({v:self.master_graph.phase(v)})
+                self.non_clifford_vertices.append(v)
+    
+    def init_simplify_graph(self, reduce_mode = False):
+        self.simplify_graph = self.master_graph.clone()
+        self.simplify_graph.set_simplifier(self, reduce_mode)
+    
+    def fuse_phases(self,vertex_1,vertex_2):
+        if not all(v in self.non_clifford_vertices for v in (vertex_1, vertex_2)): return
+        
+        for vertex_dict in self.teleported_phases:
+            if vertex_1 in vertex_dict: vertex_dict_1 = vertex_dict
+            if vertex_2 in vertex_dict: vertex_dict_2 = vertex_dict
+        
+        m12 = self.phase_mult[vertex_1] * self.phase_mult[vertex_2]
+        for vi in vertex_dict_1:
+            mi1 = 1 if vi == vertex_1 else self.fusion_mult[vi][vertex_1]
+            for vj in vertex_dict_2:
+                m2j = 1 if vj == vertex_2 else self.fusion_mult[vertex_2][vj]
+                mij = mi1 * m12 * m2j
+                self.fusion_mult[vi][vj] = mij
+                self.fusion_mult[vj][vi] = mij
+        
+        fused_vertex_dict = dict()
+        for v1 in vertex_dict_1: fused_vertex_dict[v1] = (vertex_dict_1[v1] + self.fusion_mult[v1][vertex_2] * vertex_dict_2[vertex_2])%2
+        for v2 in vertex_dict_2: fused_vertex_dict[v2] = (vertex_dict_2[v2] + self.fusion_mult[v2][vertex_1] * vertex_dict_1[vertex_1])%2
+        
+        self.teleported_phases.remove(vertex_dict_1)
+        self.teleported_phases.remove(vertex_dict_2)
+        self.teleported_phases.append(fused_vertex_dict)
+    
+    def teleport_reduce(self, quiet:bool=True, stats:Optional[Stats]=None) -> None:
+        self.init_simplify_graph()
+        full_reduce(self.simplify_graph,quiet=quiet, stats=stats)
+        self.init_simplify_graph(reduce_mode=True)
+        self.simplify_graph.place_remaining_phases()
+        return self.simplify_graph
+    
+    def teleport_phases(self, x, quiet:bool=True, stats:Optional[Stats]=None) -> None:
+        self.init_simplify_graph()
+        full_reduce(self.simplify_graph,quiet=True, stats=stats)
+        self.init_simplify_graph(reduce_mode=True)
+        spider_simp(self.simplify_graph,quiet=True)
+        # id_fuse_simp(self.simplify_graph,quiet=True)
+        self.simplify_graph.vertices_to_update = [] 
+        twoQ_reduce_simp(self.simplify_graph, x ,quiet=quiet)
+        self.simplify_graph.place_remaining_phases()
+        return self.simplify_graph
 
-    def fuse_phases(self,i1:int, i2: int) -> None:
-        try:
-            v1 = self.mastergraph.vertex_from_phase_index(i1)
-            v2 = self.mastergraph.vertex_from_phase_index(i2)
-        except ValueError: return
-        #self.mastergraph.phase_index[v2] = i1
-        p1 = self.mastergraph.phase(v1)
-        p2 = self.mastergraph.phase(v2)
-        m1 = self.simplifygraph.phase_mult[i1]
-        m2 = self.simplifygraph.phase_mult[i2]
-        if (p2 == 0 or p2.denominator <= 2): # Deleted vertex contains Clifford phase
-            if v2 in self.phantom_phases:
-                v3,i3 = self.phantom_phases[v2]
-                m2 = m2*self.simplifygraph.phase_mult[i3] # type: ignore
-                v2,i2 = v3,i3
-                p2 = self.mastergraph.phase(v2)
-            else: return
-        if (p1 == 0 or p1.denominator <= 2): # Need to save non-Clifford location
-            self.simplifygraph.phase_mult[i1] = 1
-            if v1 in self.phantom_phases: # Already fused with non-Clifford before
-                v3,i3 = self.phantom_phases[v1]
-                self.mastergraph.phase_index[v3] = i1
-                del self.mastergraph.phase_index[v1]
-                p1 = self.mastergraph.phase(v3)
-                if (p1+p2).denominator <= 2:
-                    del self.phantom_phases[v1]
-                v1,i1 = v3,i3
-                m1 = m1*self.simplifygraph.phase_mult[i3] # type: ignore
-            else:
-                self.phantom_phases[v1] = (v2,i2)
-                self.simplifygraph.phase_mult[i2] = m2
-                return
-        if p1.denominator <= 2 or p2.denominator <= 2: raise Exception("Clifford phases here??")
-        # Both have non-Clifford phase
-        if m1*m2 == 1: phase = (p1 + p2)%2
-        else: phase = p1 - p2
-        self.mastergraph.set_phase(v1,phase)
-        self.mastergraph.set_phase(v2,0)
+def selective_simp(
+    g: BaseGraph[VT,ET],
+    x,
+    get_matches: Callable[..., Dict[MatchObject,int]],
+    update_matches,
+    rewrite: Callable[[BaseGraph[VT,ET],List[MatchObject]],RewriteOutputType[ET,VT]],
+    matchf: Optional[Union[Callable[[ET],bool], Callable[[VT],bool]]]=None,
+    condition: Optional[Callable[...,bool]]=lambda x: True,
+    max_num_rewrites:int = -1,
+    quiet: bool=False) -> int:
+    
+    matches = get_matches(g, x, matchf)
+    unchecked_matches = matches.copy()
+    num_rewrites = 0
+    while True:
+        if len(unchecked_matches) == 0: break
+        m = max(unchecked_matches, key=unchecked_matches.get)
+        g_before = g.clone()
+        check_g = g.clone()
+        apply_rule(check_g, rewrite, m)
+        if condition(check_g, m):
+            num_rewrites += 1
+            if not quiet and g.simplifier: print(f'{g}  ---   {m}    ---   {unchecked_matches[m]}                                                      ',end='\r')
+            g.replace(check_g)
+            updated_matches = update_matches(g, g_before, x, get_matches, matches, matchf)
+            matches = updated_matches.copy()
+            unchecked_matches = matches.copy()
+            if num_rewrites == max_num_rewrites: break
+            continue
+        del unchecked_matches[m]
+    if not quiet: print()
+    return num_rewrites
 
-        self.simplifygraph.phase_mult[i2] = 1
+def update_2Q_reduce_matches(
+    g_after: BaseGraph[VT,ET],
+    g_before: BaseGraph[VT,ET],
+    x,
+    get_matches: Callable[..., Dict[MatchObject,int]],
+    current_matches: Dict[MatchObject,int],
+    matchf = None
+    ) -> Dict[MatchObject,int]:
+    
+    verts_to_update = set()
+    edges_to_update = set()
+    
+    changed_vertices = g_after.vertices_to_update
+    removed_vertices = set(g_before.vertices()).difference(set(g_after.vertices()))
+    for v in g_after.vertices():
+        if set([e for e in g_before.edges() if v in e]) != set([e for e in g_after.edges() if v in e]) or v in changed_vertices:
+            verts_to_update.add(v)
+            verts_to_update.update(list(g_after.neighbors(v)))
+    
+    for v1 in verts_to_update:
+        for v2 in verts_to_update:
+            if v1 == v2: continue
+            if g_after.connected(v1,v2): edges_to_update.add(g_after.edge(v1,v2))
+    
+    matches_to_update = verts_to_update.union(edges_to_update)
+    if matchf: update_m = lambda y: y in matches_to_update and matchf(y)
+    else: update_m = lambda y: y in matches_to_update
+    new_matches = get_matches(g_after, x,update_m)
+    updated_matches = remove_updated_2Q_reduce_matches(current_matches,removed_vertices,verts_to_update)
+    updated_matches.update(new_matches)
+    g_after.vertices_to_update = []
+    return updated_matches
 
-    def full_reduce(self, quiet:bool=True, stats:Optional[Stats]=None) -> None:
-        full_reduce(self.simplifygraph,quiet=quiet, stats=stats)
-
-
+def twoQ_reduce_simp(g: BaseGraph[VT,ET], x, matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: causal_flow(graph), quiet:bool=False) -> int:
+    return selective_simp(g, x, match_2Q_reduce, update_2Q_reduce_matches, unfuse, matchf=matchf, condition=condition, quiet=quiet)
 
 def to_gh(g: BaseGraph[VT,ET],quiet:bool=True) -> None:
     """Turns every red node into a green node by changing regular edges into hadamard edges"""
@@ -448,7 +500,6 @@ def to_graph_like(g):
 
     # simplify: remove excess HAD's, fuse along non-HAD edges, remove parallel edges and self-loops
     spider_simp(g, quiet=True)
-
     # ensure all I/O are connected to a Z-spider
     bs = [v for v in g.vertices() if g.type(v) == VertexType.BOUNDARY]
     for v in bs:

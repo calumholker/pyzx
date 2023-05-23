@@ -37,18 +37,14 @@ def gflow(
     vertices: Set[VT] = set(g.vertices())
     pattern_inputs: Set[VT] = set()
     for inp in inputs:
-        if g.type(inp) == VertexType.BOUNDARY:
-            pattern_inputs |= set(g.neighbors(inp))
-        else:
-            pattern_inputs.add(inp)
+        if g.type(inp) == VertexType.BOUNDARY: pattern_inputs |= set(g.neighbors(inp))
+        else: pattern_inputs.add(inp)
     k: int = 1
 
-    for v in processed:
-        l[v] = 0
+    for v in processed: l[v] = 0
 
     while True:
         correct = set()
-        # unprocessed = list()
         processed_prime = [
             v
             for v in processed.difference(pattern_inputs)
@@ -59,9 +55,8 @@ def gflow(
             for v in vertices.difference(processed)
             if any(w in processed_prime for w in g.neighbors(v))
         ]
-
         zerovec = Mat2([[0] for i in range(len(candidates))])
-        # print(unprocessed, processed_prime, zerovec)
+        
         m = Mat2([[1 if g.connected(v,w) else 0 for v in processed_prime] for w in candidates])
         for u in candidates:
             vu = zerovec.copy()
@@ -73,9 +68,8 @@ def gflow(
                 l[u] = k
 
         if not correct:
-            if not candidates:
-                return l, gflow, k
-            return None
+            if not candidates: return True
+            return False
         else:
             processed.update(correct)
             k += 1

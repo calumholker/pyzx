@@ -60,11 +60,11 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         cpy.scalar = self.scalar.copy()
         cpy._inputs = tuple(list(self._inputs))
         cpy._outputs = tuple(list(self._outputs))
-        cpy.track_phases = self.track_phases
-        cpy.phase_index = self.phase_index.copy()
-        cpy.phase_master = self.phase_master
-        cpy.phase_mult = self.phase_mult.copy()
-        cpy.max_phase_index = self.max_phase_index
+        cpy.simplifier = self.simplifier
+        cpy.phantom_vertices = self.phantom_vertices.copy()
+        cpy.vertices_to_update = self.vertices_to_update.copy()
+        cpy.teleported_phases = [d.copy() for d in self.teleported_phases]
+        cpy.teleport_mode = self.teleport_mode
         cpy.flow_successor = self.flow_successor.copy()
         cpy.flow_predecessor = self.flow_predecessor.copy()
         return cpy
@@ -140,8 +140,6 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
             try: del self._qindex[v]
             except: pass
             try: del self._rindex[v]
-            except: pass
-            try: del self.phase_index[v]
             except: pass
             self.flow_successor = {v1: v2 for v1, v2 in self.flow_successor.items() if v1 != v and v2 != v}
             self.flow_predecessor = {v1: v2 for v1, v2 in self.flow_predecessor.items() if v1 != v and v2 != v}
@@ -259,6 +257,7 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
             self._phase[vertex] = (old_phase + Fraction(phase)) % 2
         except Exception:
             self._phase[vertex] = old_phase + phase
+        
     def qubit(self, vertex):
         return self._qindex.get(vertex,-1)
     def qubits(self):
