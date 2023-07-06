@@ -205,7 +205,7 @@ def reduce_scalar(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=No
         if not i7: break
         i += 1
     return i
-        
+
 def full_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None) -> None:
     """The main simplification routine of PyZX. It uses a combination of :func:`clifford_simp` and
     the gadgetization strategies :func:`pivot_gadget_simp` and :func:`gadget_simp`."""
@@ -288,7 +288,7 @@ class Simplifier(Generic[VT, ET]):
         self.init_simplify_graph(reduce_mode=True)
         spider_simp(self.simplify_graph,quiet=True)
         # id_fuse_simp(self.simplify_graph,quiet=True)
-        self.simplify_graph.vertices_to_update = [] 
+        self.simplify_graph.vertices_to_update = []
         twoQ_reduce_simp(self.simplify_graph, x ,quiet=quiet)
         self.simplify_graph.place_remaining_phases()
         return self.simplify_graph
@@ -359,7 +359,7 @@ def update_2Q_reduce_matches(
     g_after.vertices_to_update = []
     return updated_matches
 
-def twoQ_reduce_simp(g: BaseGraph[VT,ET], x, matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: causal_flow(graph), quiet:bool=False) -> int:
+def twoQ_reduce_simp(g: BaseGraph[VT,ET], x, matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=False) -> int:
     return selective_simp(g, x, match_2Q_reduce, update_2Q_reduce_matches, unfuse, matchf=matchf, condition=condition, quiet=quiet)
 
 def to_gh(g: BaseGraph[VT,ET],quiet:bool=True) -> None:

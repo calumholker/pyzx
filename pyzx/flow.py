@@ -187,7 +187,7 @@ def fast_flow(
 
         if not Out_prime:
             if processed == vertices:
-                return order, flow, k
+                return True
             return False
         else:
             processed |= Out_prime

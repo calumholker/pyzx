@@ -726,7 +726,7 @@ def merge_phase_gadgets(g: BaseGraph[VT,ET], matches: List[MatchGadgetType[VT]])
         rem.extend(othergadgets)
         rem.extend(othertargets)
         for w in othertargets:
-            if g.simplifier: 
+            if g.simplifier:
                 g.fuse_phases(v,w)
             if g.merge_vdata is not None:
                 g.merge_vdata(v, w)
