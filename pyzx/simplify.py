@@ -288,7 +288,8 @@ class Simplifier(Generic[VT, ET]):
         self.init_simplify_graph(reduce_mode=True)
         spider_simp(self.simplify_graph,quiet=True)
         self.simplify_graph.vertices_to_update = []
-        if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph), quiet=quiet)
+        # if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph), quiet=quiet)
+        if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True, quiet=quiet)
         else: twoQ_reduce_simp(self.simplify_graph, x ,quiet=quiet)
         self.simplify_graph.place_remaining_phases()
         return self.simplify_graph
