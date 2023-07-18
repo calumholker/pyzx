@@ -3,10 +3,12 @@ import os
 import glob
 import numpy as np
 import random
+from datetime import datetime
 import sqlite3
 sys.path.append('/home/calum/pyzx')
 import pyzx as zx
 import concurrent.futures
+import threading
 from tqdm.auto import tqdm
 
 evaluated_params = set()
@@ -16,10 +18,13 @@ def func(file, params):
     init_2Q = c.twoqubitcount()
     g = c.to_graph()
     zx.simplify.to_gh(g)
+    # g2 = zx.simplify.flow_reduce(g,x=params, flow = 'g', quiet=True)
+    # c2 = zx.extract.extract_circuit(g2, up_to_perm=True).to_basic_gates()
     g2 = zx.simplify.flow_reduce(g,x=params,quiet=True)
-    c2 = zx.extract.extract_simple(g2, up_to_perm=False).to_basic_gates()
-    c3 = zx.optimize.basic_optimization(c2).to_basic_gates()
-    return c3.twoqubitcount()/init_2Q
+    c2 = zx.extract.extract_simple(g2, up_to_perm=True).to_basic_gates()
+    c3 = zx.optimize.basic_optimization(c2.copy(), do_swaps=False).to_basic_gates().twoqubitcount()
+    c4 = zx.optimize.basic_optimization(c2.copy(), do_swaps=True).to_basic_gates().twoqubitcount()
+    return min(c3,c4)/init_2Q
 
 def cost_function(params, files, tq=False):
     total = 0
@@ -42,7 +47,7 @@ def perturb_and_evaluate(params, files, perturbation_range, optimise_ratios):
             new_params[:3] = np.round(new_params[:3], 2)
             new_params[2] = 1 - np.sum(new_params[:2])
         else:
-            new_params[3:] += np.round(np.random.uniform(-perturbation_range*5, perturbation_range*5, 6), 2)
+            new_params[3:] += np.round(np.random.uniform(-perturbation_range*50, perturbation_range*50, 6), 2)
         params_tuple = tuple(new_params)
         if params_tuple not in evaluated_params:
             break
@@ -55,10 +60,13 @@ def simulated_annealing(files, init_params, temp=1000, cooling_rate=0.95, iter_l
     current_cost = cost_function(current_params, files, tq=True)
     best_cost = current_cost
     best_params = [current_params]
+    print(best_cost, datetime.now())
 
     optimise_ratios = True
     no_improvement_count = 0
     switch_with_no_improvement = False
+    
+    save_to_database(current_params, temp, current_cost, optimise_ratios)
 
     for _ in tqdm(range(iter_limit), desc="Iterations"):
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -73,6 +81,7 @@ def simulated_annealing(files, init_params, temp=1000, cooling_rate=0.95, iter_l
                     if current_cost < best_cost:
                         best_cost = current_cost
                         best_params = [current_params]
+                        print(best_cost, datetime.now())
                         no_improvement_count = 0
                         switch_with_no_improvement = False
                     elif current_cost == best_cost:
@@ -108,7 +117,7 @@ def save_to_database(params, temp, cost, optimise_ratios):
 if __name__ == "__main__":
     directory = sys.argv[1]
     files = glob.glob(os.path.join(directory, "*"))
-    init_params = [1/3,1/3,1/3,0,0,0,0,0,0]
+    init_params = [0.3, 0.5, 0.2, -1.81, 2.47, 0.35, 1.08, -1.15, 1.11]
     optimized_params, optimized_cost = simulated_annealing(files, init_params)
     print("Optimized Parameters:", optimized_params)
     print("Optimized Cost:", optimized_cost)
