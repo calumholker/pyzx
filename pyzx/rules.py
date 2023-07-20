@@ -1315,3 +1315,25 @@ def unfuse(g: BaseGraph[VT,ET], match: MatchUnfuseType) -> RewriteOutputType[ET,
     if match[0]: return lcomp_unfuse(g,[match[0]])
     if match[1]: return pivot_unfuse(g,[match[1]])
     if match[2]: return id_fuse(g,[match[2]])
+
+def match_int_cliff(g, x=None, matchf=None):
+    m = dict()
+    min_red = 0
+    for match in match_lcomp_parallel(g,vertexf=matchf,allow_interacting_matches=True):
+        stats = lcomp_statistics(g,match[0],match[1],[])
+        if stats[0]-stats[1] < min_red: continue
+        m[(match,None,None)] = stats[0]-stats[1]
+    for match in match_pivot_parallel(g,matchf=matchf,allow_interacting_matches=True):
+        stats = pivot_statistics(g,match[0],match[1],match[2],match[3],[[],[]])
+        if stats[0]-stats[1] < min_red: continue
+        m[(None,match,None)] = stats[0]-stats[1]
+    for match in match_id_fuse(g,matchf,allow_interacting_matches=True):
+        stats = id_fuse_statistics(g,match[0],match[1],match[2])
+        if stats[0]-stats[1] < min_red: continue
+        m[(None,None,match)] = stats[0]-stats[1]
+    return m
+
+def int_cliff(g,match):
+    if match[0]: return lcomp(g,[match[0]])
+    if match[1]: return pivot(g,[match[1]])
+    if match[2]: return id_fuse(g,[match[2]])

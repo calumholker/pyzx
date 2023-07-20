@@ -232,6 +232,21 @@ def flow_reduce(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> 
     g2 = s.teleport_phases(x, flow=flow, quiet=quiet)
     return g2
 
+def flow_reduce_2(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
+    s = Simplifier(g)
+    g2 = s.teleport_phases_2(x, flow=flow, quiet=quiet)
+    return g2
+
+def flow_reduce_2(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
+    s = Simplifier(g)
+    g2 = s.teleport_phases_2(x, flow=flow, quiet=quiet)
+    return g2
+
+def flow_reduce_3(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
+    s = Simplifier(g)
+    g2 = s.teleport_phases_3(x, flow=flow, quiet=quiet)
+    return g2
+
 class Simplifier(Generic[VT, ET]):
     """Class used for :func:`teleport_reduce`."""
     def __init__(self, g: BaseGraph[VT,ET]) -> None:
@@ -291,6 +306,27 @@ class Simplifier(Generic[VT, ET]):
         # if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph), quiet=quiet)
         if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True, quiet=quiet)
         else: twoQ_reduce_simp(self.simplify_graph, x ,quiet=quiet)
+        self.simplify_graph.place_remaining_phases()
+        return self.simplify_graph
+    
+    def teleport_phases_2(self, x, flow='causal', quiet:bool=True, stats:Optional[Stats]=None) -> None:
+        self.init_simplify_graph()
+        full_reduce(self.simplify_graph,quiet=True, stats=stats)
+        self.init_simplify_graph(reduce_mode=True)
+        spider_simp(self.simplify_graph,quiet=True)
+        self.simplify_graph.vertices_to_update = []
+        if flow != 'causal': int_cliff_flow_simp(self.simplify_graph, condition = lambda graph, match: True, quiet=quiet)
+        else: int_cliff_flow_simp(self.simplify_graph , quiet=quiet)
+        self.simplify_graph.place_remaining_phases()
+        return self.simplify_graph
+    
+    def teleport_phases_3(self, x, flow='causal', quiet:bool=True, stats:Optional[Stats]=None) -> None:
+        self.init_simplify_graph()
+        full_reduce(self.simplify_graph,quiet=True, stats=stats)
+        self.init_simplify_graph(reduce_mode=True)
+        spider_simp(self.simplify_graph,quiet=True)
+        self.simplify_graph.vertices_to_update = []
+        interior_clifford_simp(self.simplify_graph,quiet=quiet)
         self.simplify_graph.place_remaining_phases()
         return self.simplify_graph
 
@@ -362,6 +398,9 @@ def update_2Q_reduce_matches(
 
 def twoQ_reduce_simp(g: BaseGraph[VT,ET], x, matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=False) -> int:
     return selective_simp(g, x, match_2Q_reduce, update_2Q_reduce_matches, unfuse, matchf=matchf, condition=condition, quiet=quiet)
+
+def int_cliff_flow_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=True) -> int:
+    return selective_simp(g, None, match_int_cliff, update_2Q_reduce_matches, int_cliff, matchf=matchf, condition=condition, quiet=quiet)
 
 def to_gh(g: BaseGraph[VT,ET],quiet:bool=True) -> None:
     """Turns every red node into a green node by changing regular edges into hadamard edges"""
