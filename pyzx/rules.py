@@ -1116,6 +1116,7 @@ def get_lcomp_unfusion_matches(
     unfusion_matches = dict()
     # potential_unfusion_neighbours = [list(subset) for i in range(len(vn)-1) for subset in itertools.combinations(vn, i)]
     potential_unfusion_neighbours = [list(subset) for i in range(2) for subset in itertools.combinations(vn, i)]
+    # potential_unfusion_neighbours = []
     
     for neighbours_to_unfuse in potential_unfusion_neighbours:
         if not set(vb) <= set(neighbours_to_unfuse): continue
@@ -1220,6 +1221,7 @@ def get_pivot_unfusion_matches(g: BaseGraph[VT,ET], x, v0: VT, v1: VT, v0n, v1n,
     potential_unfusion_neighbors_v0 = [list(subset) for i in range(2) for subset in itertools.combinations(v0n, i)]
     potential_unfusion_neighbors_v1 = [list(subset) for i in range(2) for subset in itertools.combinations(v1n, i)]
     potential_unfusion_neighbors = [(n0,n1) for n0 in potential_unfusion_neighbors_v0 for n1 in potential_unfusion_neighbors_v1]
+    # potential_unfusion_neighbors = [([],[])]
     
     for neighbours_to_unfuse in potential_unfusion_neighbors:
         if v0 in neighbours_to_unfuse[1] or v1 in neighbours_to_unfuse[0]: continue
