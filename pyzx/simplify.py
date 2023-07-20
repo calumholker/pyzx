@@ -87,7 +87,7 @@ def simp(
     total_rewrites = 0
     while True:
         if matchf and max_num_rewrites: matches = match(g, matchf, num = -1 if max_num_rewrites == -1 else max_num_rewrites-total_rewrites)
-        elif matchf: matches = match(g, matchf) 
+        elif matchf: matches = match(g, matchf)
         elif max_num_rewrites: matches = match(g, num = -1 if max_num_rewrites == -1 else max_num_rewrites-total_rewrites)
         else: matches = match(g)
         
