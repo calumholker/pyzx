@@ -307,8 +307,8 @@ class Simplifier(Generic[VT, ET]):
         spider_simp(self.simplify_graph,quiet=True)
         self.simplify_graph.vertices_to_update = []
         self.simplify_graph.place_remaining_phases()
-        if flow != 'causal': int_cliff_flow_simp(self.simplify_graph, condition = lambda graph, match: True, quiet=quiet)
-        else: int_cliff_flow_simp(self.simplify_graph , quiet=quiet)
+        if flow != 'causal': int_cliff_flow_simp(self.simplify_graph, x, condition = lambda graph, match: True, quiet=quiet)
+        else: int_cliff_flow_simp(self.simplify_graph , x, quiet=quiet)
         # self.simplify_graph.place_remaining_phases()
         return self.simplify_graph
 
@@ -381,8 +381,8 @@ def update_2Q_reduce_matches(
 def twoQ_reduce_simp(g: BaseGraph[VT,ET], x, matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=False) -> int:
     return selective_simp(g, x, match_2Q_reduce, update_2Q_reduce_matches, unfuse, matchf=matchf, condition=condition, quiet=quiet)
 
-def int_cliff_flow_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=True) -> int:
-    return selective_simp(g, None, match_int_cliff, update_2Q_reduce_matches, int_cliff, matchf=matchf, condition=condition, quiet=quiet)
+def int_cliff_flow_simp(g: BaseGraph[VT,ET], x, matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=True) -> int:
+    return selective_simp(g, x, match_int_cliff, update_2Q_reduce_matches, int_cliff, matchf=matchf, condition=condition, quiet=quiet)
 
 def to_gh(g: BaseGraph[VT,ET],quiet:bool=True) -> None:
     """Turns every red node into a green node by changing regular edges into hadamard edges"""
