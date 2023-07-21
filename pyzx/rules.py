@@ -1332,6 +1332,7 @@ def match_int_cliff(g, x=None, matchf=None):
         m[(None,match,None)] = x[1]*(twoQ_removed + x[5]*vertices_removed + x[6])
     for match in match_id_fuse(g,matchf,allow_interacting_matches=True):
         edges_removed, vertices_removed = id_fuse_statistics(g,match[0],match[1],match[2])
+        twoQ_removed = edges_removed - vertices_removed
         if twoQ_removed < 0: continue
         x[2]*(twoQ_removed + x[7]*vertices_removed + x[8])
     return m
