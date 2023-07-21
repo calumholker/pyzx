@@ -1320,19 +1320,20 @@ def unfuse(g: BaseGraph[VT,ET], match: MatchUnfuseType) -> RewriteOutputType[ET,
 
 def match_int_cliff(g, x=None, matchf=None):
     m = dict()
-    min_red = 0
     for match in match_lcomp_parallel(g,vertexf=matchf,allow_interacting_matches=True):
-        stats = lcomp_statistics(g,match[0],match[1],[])
-        if stats[0]-stats[1] < min_red: continue
-        m[(match,None,None)] = stats[0]-stats[1]
+        edges_removed, vertices_removed = lcomp_statistics(g,match[0],match[1],[])
+        twoQ_removed = edges_removed - vertices_removed
+        if twoQ_removed < 0: continue
+        m[(match,None,None)] = x[0]*(twoQ_removed + x[3]*vertices_removed + x[4])
     for match in match_pivot_parallel(g,matchf=matchf,allow_interacting_matches=True):
-        stats = pivot_statistics(g,match[0],match[1],match[2],match[3],[[],[]])
-        if stats[0]-stats[1] < min_red: continue
-        m[(None,match,None)] = stats[0]-stats[1]
+        edges_removed, vertices_removed = pivot_statistics(g,match[0],match[1],match[2],match[3],[[],[]])
+        twoQ_removed = edges_removed - vertices_removed
+        if twoQ_removed < 0: continue
+        m[(None,match,None)] = x[1]*(twoQ_removed + x[5]*vertices_removed + x[6])
     for match in match_id_fuse(g,matchf,allow_interacting_matches=True):
-        stats = id_fuse_statistics(g,match[0],match[1],match[2])
-        if stats[0]-stats[1] < min_red: continue
-        m[(None,None,match)] = stats[0]-stats[1]
+        edges_removed, vertices_removed = id_fuse_statistics(g,match[0],match[1],match[2])
+        if twoQ_removed < 0: continue
+        x[2]*(twoQ_removed + x[7]*vertices_removed + x[8])
     return m
 
 def int_cliff(g,match):

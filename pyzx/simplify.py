@@ -232,9 +232,9 @@ def flow_reduce(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> 
     g2 = s.teleport_phases(x, flow=flow, quiet=quiet)
     return g2
 
-def flow_reduce_2(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
+def flow_reduce_int(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
     s = Simplifier(g)
-    g2 = s.teleport_phases_2(x, flow=flow, quiet=quiet)
+    g2 = s.teleport_phases_int(x, flow=flow, quiet=quiet)
     return g2
 
 class Simplifier(Generic[VT, ET]):
@@ -294,13 +294,13 @@ class Simplifier(Generic[VT, ET]):
         spider_simp(self.simplify_graph,quiet=True)
         self.simplify_graph.vertices_to_update = []
         self.simplify_graph.place_remaining_phases()
-        if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: True, quiet=quiet)
-        # if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True, quiet=quiet)
+        # if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: True, quiet=quiet)
+        if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True, quiet=quiet)
         else: twoQ_reduce_simp(self.simplify_graph, x ,quiet=quiet)
         self.simplify_graph.place_remaining_phases()
         return self.simplify_graph
     
-    def teleport_phases_2(self, x, flow='causal', quiet:bool=True, stats:Optional[Stats]=None) -> None:
+    def teleport_phases_int(self, x, flow='causal', quiet:bool=True, stats:Optional[Stats]=None) -> None:
         self.init_simplify_graph()
         full_reduce(self.simplify_graph,quiet=True, stats=stats)
         self.init_simplify_graph(reduce_mode=True)
@@ -310,16 +310,6 @@ class Simplifier(Generic[VT, ET]):
         if flow != 'causal': int_cliff_flow_simp(self.simplify_graph, condition = lambda graph, match: True, quiet=quiet)
         else: int_cliff_flow_simp(self.simplify_graph , quiet=quiet)
         # self.simplify_graph.place_remaining_phases()
-        return self.simplify_graph
-    
-    def teleport_phases_3(self, x, flow='causal', quiet:bool=True, stats:Optional[Stats]=None) -> None:
-        self.init_simplify_graph()
-        full_reduce(self.simplify_graph,quiet=True, stats=stats)
-        self.init_simplify_graph(reduce_mode=True)
-        spider_simp(self.simplify_graph,quiet=True)
-        self.simplify_graph.vertices_to_update = []
-        interior_clifford_simp(self.simplify_graph,quiet=quiet)
-        self.simplify_graph.place_remaining_phases()
         return self.simplify_graph
 
 def selective_simp(
