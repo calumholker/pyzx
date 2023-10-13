@@ -224,102 +224,98 @@ def teleport_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=
     that does not change the graph structure of the resulting diagram.
     The only thing that is different in the output graph are the location and value of the phases."""
     s = Simplifier(g)
-    g2 = s.teleport_reduce(quiet=quiet)
+    s.teleport_phases(store = False)
+    return s.simplify_graph
+
+def interior_2Q_reduce(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
+    to_gh(g)
+    s = Simplifier(g)
+    g2 = s.int_2Q_reduce(x, flow=flow, quiet=quiet)
     return g2
 
-def flow_reduce(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
+def flow_2Q_reduce(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True):
+    to_gh(g)
     s = Simplifier(g)
-    g2 = s.teleport_phases(x, flow=flow, quiet=quiet)
-    return g2
-
-def flow_reduce_2(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
-    s = Simplifier(g)
-    g2 = s.teleport_phases_2(x, flow=flow, quiet=quiet)
+    g2 = s.unfuse_2Q_reduce(x, flow=flow, quiet=quiet)
     return g2
 
 class Simplifier(Generic[VT, ET]):
     """Class used for :func:`teleport_reduce`."""
     def __init__(self, g: BaseGraph[VT,ET]) -> None:
-        self.master_graph = g.copy()
-        self.teleported_phases: List[Dict[VT, Set[FractionLike]]] = []
-        self.phase_mult = dict()
-        self.fusion_mult = dict()
-        self.non_clifford_vertices = []
-        for v in self.master_graph.vertices():
-            self.phase_mult[v] = 1
-            self.fusion_mult[v] = dict()
-            if self.master_graph.phase(v).denominator > 2:
-                self.teleported_phases.append({v:self.master_graph.phase(v)})
-                self.non_clifford_vertices.append(v)
+        self.original_graph = g.copy()
+        self.parent_vertex = {}
+        self.vertex_rank = {}
+        self.phase_mult = {}
+        self.non_clifford_vertices = set()
+        for v in self.original_graph.vertices():
+            if self.original_graph.phase(v).denominator > 2:
+                self.parent_vertex[v] = v
+                self.vertex_rank[v] = 0
+                self.phase_mult[v] = 1
+                self.non_clifford_vertices.add(v)
     
-    def init_simplify_graph(self, reduce_mode = False):
-        self.simplify_graph = self.master_graph.clone()
-        self.simplify_graph.set_simplifier(self, reduce_mode)
+    def parent(self, v):
+        if self.parent_vertex[v] != v:
+            self.parent_vertex[v] = self.parent(self.parent_vertex[v])
+        return self.parent_vertex[v]
     
-    def fuse_phases(self,vertex_1,vertex_2):
-        if not all(v in self.non_clifford_vertices for v in (vertex_1, vertex_2)): return
-        
-        for vertex_dict in self.teleported_phases:
-            if vertex_1 in vertex_dict: vertex_dict_1 = vertex_dict
-            if vertex_2 in vertex_dict: vertex_dict_2 = vertex_dict
-        
-        m12 = self.phase_mult[vertex_1] * self.phase_mult[vertex_2]
-        for vi in vertex_dict_1:
-            mi1 = 1 if vi == vertex_1 else self.fusion_mult[vi][vertex_1]
-            for vj in vertex_dict_2:
-                m2j = 1 if vj == vertex_2 else self.fusion_mult[vertex_2][vj]
-                mij = mi1 * m12 * m2j
-                self.fusion_mult[vi][vj] = mij
-                self.fusion_mult[vj][vi] = mij
-        
-        fused_vertex_dict = dict()
-        for v1 in vertex_dict_1: fused_vertex_dict[v1] = (vertex_dict_1[v1] + self.fusion_mult[v1][vertex_2] * vertex_dict_2[vertex_2])%2
-        for v2 in vertex_dict_2: fused_vertex_dict[v2] = (vertex_dict_2[v2] + self.fusion_mult[v2][vertex_1] * vertex_dict_1[vertex_1])%2
-        
-        self.teleported_phases.remove(vertex_dict_1)
-        self.teleported_phases.remove(vertex_dict_2)
-        self.teleported_phases.append(fused_vertex_dict)
+    def get_vertex_groups(self):
+        vertex_groups = {}
+        for v in self.non_clifford_vertices:
+            root = self.parent(v)
+            if root not in vertex_groups:
+                vertex_groups[root] = []
+            vertex_groups[root].append(v)
+        return list(vertex_groups.values())
     
-    def teleport_reduce(self, quiet:bool=True, stats:Optional[Stats]=None) -> None:
+    def fuse_phases(self, v1, v2):
+        if not all(v in self.non_clifford_vertices for v in (v1, v2)): return
+        root_v1 = self.parent(v1)
+        root_v2 = self.parent(v2)
+        if root_v1 != root_v2:
+            if self.vertex_rank[root_v1] > self.vertex_rank[root_v2]:
+                self.parent_vertex[root_v2] = root_v1
+            else:
+                self.parent_vertex[root_v1] = root_v2
+                if self.vertex_rank[root_v1] == self.vertex_rank[root_v2]:
+                    self.vertex_rank[root_v2] += 1
+    
+    def phase_negate(self, v):
+        root = self.parent(v)
+        for vert in self.non_clifford_vertices:
+            if self.parent(vert) == root:
+                self.phase_mult[vert] *= -1
+    
+    def init_simplify_graph(self, teleport_mode = True):
+        self.simplify_graph = self.original_graph.clone()
+        self.simplify_graph.set_simplifier(self, teleport_mode)
+    
+    def teleport_phases(self, quiet:bool=True, stats:Optional[Stats]=None, store = True) -> None:
         self.init_simplify_graph()
         full_reduce(self.simplify_graph,quiet=quiet, stats=stats)
-        self.init_simplify_graph(reduce_mode=True)
-        self.simplify_graph.place_remaining_phases()
-        return self.simplify_graph
+        if not store:
+            self.init_simplify_graph(teleport_mode=False)
+            self.simplify_graph.place_stored_phases()
     
-    def teleport_phases(self, x, flow='causal', quiet:bool=True, stats:Optional[Stats]=None) -> None:
-        self.init_simplify_graph()
-        full_reduce(self.simplify_graph,quiet=True, stats=stats)
-        self.init_simplify_graph(reduce_mode=True)
-        spider_simp(self.simplify_graph,quiet=True)
+    def int_2Q_reduce(self, x, flow='causal', quiet=True, stats=None):
+        self.teleport_phases()
+        self.init_simplify_graph(teleport_mode = False)
+        spider_simp(self.simplify_graph,quiet = True)
         self.simplify_graph.vertices_to_update = []
-        self.simplify_graph.place_remaining_phases()
-        # if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: True, quiet=quiet)
-        if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True, quiet=quiet)
-        else: twoQ_reduce_simp(self.simplify_graph, x ,quiet=quiet)
-        self.simplify_graph.place_remaining_phases()
-        return self.simplify_graph
-    
-    def teleport_phases_2(self, x, flow='causal', quiet:bool=True, stats:Optional[Stats]=None) -> None:
-        self.init_simplify_graph()
-        full_reduce(self.simplify_graph,quiet=True, stats=stats)
-        self.init_simplify_graph(reduce_mode=True)
-        spider_simp(self.simplify_graph,quiet=True)
-        self.simplify_graph.vertices_to_update = []
-        self.simplify_graph.place_remaining_phases()
+        self.simplify_graph.place_stored_phases()
         if flow != 'causal': int_cliff_flow_simp(self.simplify_graph, condition = lambda graph, match: True, quiet=quiet)
         else: int_cliff_flow_simp(self.simplify_graph , quiet=quiet)
-        # self.simplify_graph.place_remaining_phases()
         return self.simplify_graph
     
-    def teleport_phases_3(self, x, flow='causal', quiet:bool=True, stats:Optional[Stats]=None) -> None:
-        self.init_simplify_graph()
-        full_reduce(self.simplify_graph,quiet=True, stats=stats)
-        self.init_simplify_graph(reduce_mode=True)
-        spider_simp(self.simplify_graph,quiet=True)
+    def unfuse_2Q_reduce(self, x, flow='causal', quiet=True, stats=None):
+        self.teleport_phases()
+        self.init_simplify_graph(teleport_mode = False)
+        spider_simp(self.simplify_graph, quiet = True)
         self.simplify_graph.vertices_to_update = []
-        interior_clifford_simp(self.simplify_graph,quiet=quiet)
-        self.simplify_graph.place_remaining_phases()
+        self.simplify_graph.place_stored_phases()
+        if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True, quiet=quiet)
+        else: twoQ_reduce_simp(self.simplify_graph, x ,quiet=quiet)
+        # self.simplify_graph.place_stored_phases()
         return self.simplify_graph
 
 def selective_simp(
@@ -339,14 +335,13 @@ def selective_simp(
     while True:
         if len(unchecked_matches) == 0: break
         m = max(unchecked_matches, key=unchecked_matches.get)
-        g_before = g.clone()
         check_g = g.clone()
         apply_rule(check_g, rewrite, m)
         if condition(check_g, m):
             num_rewrites += 1
             if not quiet and g.simplifier: print(f'{g}  ---   {m}    ---   {unchecked_matches[m]}                                                      ',end='\r')
+            updated_matches = update_matches(check_g, g, x, get_matches, matches, matchf)
             g.replace(check_g)
-            updated_matches = update_matches(g, g_before, x, get_matches, matches, matchf)
             matches = updated_matches.copy()
             unchecked_matches = matches.copy()
             if num_rewrites == max_num_rewrites: break
@@ -382,17 +377,17 @@ def update_2Q_reduce_matches(
     matches_to_update = verts_to_update.union(edges_to_update)
     if matchf: update_m = lambda y: y in matches_to_update and matchf(y)
     else: update_m = lambda y: y in matches_to_update
-    new_matches = get_matches(g_after, x,update_m)
+    new_matches = get_matches(g_after, x, update_m)
     updated_matches = remove_updated_2Q_reduce_matches(current_matches,removed_vertices,verts_to_update)
     updated_matches.update(new_matches)
     g_after.vertices_to_update = []
     return updated_matches
 
+def int_cliff_flow_simp(g, matchf = None, condition=lambda graph, match: fast_flow(graph), quiet=True):
+    return selective_simp(g, None, match_int_cliff, update_2Q_reduce_matches, int_cliff, matchf=matchf, condition=condition, quiet=quiet)
+
 def twoQ_reduce_simp(g: BaseGraph[VT,ET], x, matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=False) -> int:
     return selective_simp(g, x, match_2Q_reduce, update_2Q_reduce_matches, unfuse, matchf=matchf, condition=condition, quiet=quiet)
-
-def int_cliff_flow_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=True) -> int:
-    return selective_simp(g, None, match_int_cliff, update_2Q_reduce_matches, int_cliff, matchf=matchf, condition=condition, quiet=quiet)
 
 def to_gh(g: BaseGraph[VT,ET],quiet:bool=True) -> None:
     """Turns every red node into a green node by changing regular edges into hadamard edges"""

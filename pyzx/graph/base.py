@@ -79,10 +79,14 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.scalar: Scalar = Scalar()
         
         # simplifier for circuit simplifications
-        self.simplifier: Optional['simplify.Simplifier'] = None
+        self.simplifier = None
         self.teleport_mode = False
-        self.phantom_vertices: Dict[VT, VT] = dict()
-        self.teleported_phases = []
+        self.parent_vertex = {}
+        self.vertex_groups = {}
+        self.group_data = {}
+        self.phase_sum = {}
+        self.phase_mult = {}
+        self.sign_change = {}
         self.vertices_to_update = []
 
         # merge_vdata(v0,v1) is an optional, custom function for merging
@@ -775,171 +779,158 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         """Like add_edge, but does the right thing if there is an existing edge."""
         self.add_edge_table({e : [1,0] if edgetype == EdgeType.SIMPLE else [0,1]})
 
-    def set_simplifier(self, m: 'simplify.Simplifier', reduce_mode) -> None:
+    def set_simplifier(self, simp: 'simplify.Simplifier', teleport_mode) -> None:
         """Points towards an instance of the class :class:`~pyzx.simplify.Simplifier`.
         Used for phase teleportation."""
-        self.simplifier = m
-        if reduce_mode:
-            for vertex_dict in m.teleported_phases:
-                if len(vertex_dict) == 1: continue
-                for v in vertex_dict: self.set_phase(v,0)
-                if any(phase == 0 for phase in vertex_dict.values()):
-                    self.teleported_phases.append({v:0 for v in vertex_dict})
-                    continue
-                if sum([p.denominator <= 2 for p in vertex_dict.values()]) != 1:
-                    self.teleported_phases.append(vertex_dict.copy())
-                    continue
-                v, p = [(v,p) for v,p in vertex_dict.items() if p.denominator <= 2][0]
-                self.set_phase(v,p)
-                self.teleported_phases.append({v:0 for v in vertex_dict})
-        else: self.teleport_mode = True
+        self.simplifier = simp
+        self.teleport_mode = teleport_mode
+        if self.teleport_mode: return
+        for group_num, group in enumerate(simp.get_vertex_groups()):
+            if len(group) == 1: continue
+            self.group_data[group_num] = set(group)
+            phase_sum = 0
+            for v in group:
+                self.vertex_groups[v] = group_num
+                mult = simp.phase_mult[v]
+                self.phase_mult[v] = mult
+                phase_sum += self.phase(v) * mult
+                self.sign_change[v] = 1
+                self.set_phase(v,0)
+            self.phase_sum[group_num] = phase_sum
+
+    def root_vertex(self, v):
+        while v in self.parent_vertex: v = self.parent_vertex[v]
+        return v
     
-    def phase_negate(self, vertex):
-        if not self.teleport_mode: return
-        vertex = self.phantom_vertex(vertex)
-        if vertex not in self.simplifier.non_clifford_vertices: return
-        self.simplifier.phase_mult[vertex] *= -1
+    def leaf_vertex(self, v):
+        for child, parent in self.parent_vertex.items():
+            if parent == v: return self.leaf_vertex(child)
+        return v
     
-    def phantom_vertex(self, vertex):
-        try: vertex = self.phantom_vertices[vertex]
-        except: pass
-        return vertex
-    
-    def fuse_phases(self,vertex_1,vertex_2):
+    def phase_negate(self, v):
+        root_v = self.root_vertex(v)
         if not self.teleport_mode:
-            for vertex_dict in self.teleported_phases[:]:
-                if vertex_2 in vertex_dict:
-                    new_vertex_dict = {v:p for v,p in vertex_dict.items() if v != vertex_2}
-                    self.teleported_phases.remove(vertex_dict)
-                    if vertex_1 in vertex_dict:
-                        if vertex_dict[vertex_2] == 0:
-                            new_vertex_dict[vertex_1] = vertex_dict[vertex_2]
-                            self.phantom_vertices[vertex_1] = self.phantom_vertex(vertex_2)
-                        elif vertex_dict[vertex_2].denominator <= 2 and vertex_dict[vertex_1] != 0: 
-                            new_vertex_dict[vertex_1] = vertex_dict[vertex_2]
-                            self.phantom_vertices[vertex_1] = self.phantom_vertex(vertex_2)
-                    else:
-                        new_vertex_dict[vertex_1] = vertex_dict[vertex_2]
-                        self.phantom_vertices[vertex_1] = self.phantom_vertex(vertex_2)
-                    
-                    if len(new_vertex_dict) == 1:
-                        vertex, p = next(iter(new_vertex_dict.items()))
-                        self.add_to_phase(vertex,p)
-                    elif sum([p.denominator <= 2 for p in new_vertex_dict.values()]) == 1:
-                        vertex, p = [(vertex,p) for vertex,p in new_vertex_dict.items() if p.denominator <= 2][0]
-                        self.add_to_phase(vertex, p)
-                        self.teleported_phases.append({vertex:0 for vertex in new_vertex_dict})
-                    else: self.teleported_phases.append(new_vertex_dict)
-                    self.vertices_to_update.extend([vertex for vertex in new_vertex_dict])
+            if root_v in self.vertex_groups: self.sign_change[root_v] *= -1
+            return
+        if root_v not in self.simplifier.non_clifford_vertices: return
+        self.simplifier.phase_negate(root_v)
+    
+    def update_group(self, group):
+        if len(self.group_data[group]) == 1:
+            v = next(iter(self.group_data[group]))
+            phase = self.phase_sum[group] * self.phase_mult[v] * self.sign_change[v]
+            child_v = self.leaf_vertex(v)
+            self.add_to_phase(child_v, phase)
+            del self.vertex_groups[v]
+            del self.phase_mult[v]
+            del self.sign_change[v]
+            del self.phase_sum[group]
+            del self.group_data[group]
+            self.vertices_to_update.append(child_v)
+        elif len(self.group_data[group]) == 2:
+            self.vertices_to_update.extend([self.leaf_vertex(u) for u in self.group_data[group]])
+    
+    def remove_vertex_from_group(self, v, group):
+        del self.vertex_groups[v]
+        del self.phase_mult[v]
+        del self.sign_change[v]
+        self.group_data[group].remove(v)
+        self.update_group(group)
+    
+    def fuse_phases(self,v1,v2):
+        root_v1 = self.root_vertex(v1)
+        root_v2 = self.root_vertex(v2)
+        
+        if self.teleport_mode:
+            if root_v2 in self.simplifier.non_clifford_vertices:
+                if root_v1 in self.simplifier.non_clifford_vertices:
+                    self.simplifier.fuse_phases(root_v1,root_v2)
+                else: self.parent_vertex[v1] = v2
             return
         
-        vertex_1 = self.phantom_vertex(vertex_1)
-        vertex_2 = self.phantom_vertex(vertex_2)
-        self.simplifier.fuse_phases(vertex_1,vertex_2)
-        if vertex_2 in self.simplifier.non_clifford_vertices and vertex_1 not in self.simplifier.non_clifford_vertices:
-            self.phantom_vertices[vertex_1] = vertex_2
-
-    def place_remaining_phases(self):
-        for vertex_dict in self.teleported_phases:
-            if any(p == 0 for p in vertex_dict.values()): continue
-            if any(p.denominator <= 2 for p in vertex_dict.values()):
-                v,p = [(v,p) for v,p in vertex_dict.items() if p.denominator <= 2][0]
-            else: v,p = next(iter(vertex_dict.items()))
-            self.add_to_phase(v,p)
-        self.teleported_phases = [] 
+        group_1 = self.vertex_groups.get(root_v1)
+        group_2 = self.vertex_groups.get(root_v2)
+        if group_2 is not None:
+            if group_1 is not None:
+                if group_1 == group_2:
+                    self.remove_vertex_from_group(root_v2, group_1)
+                else: raise Exception('Unexpected fusing of two vertex groups')
+            else:
+                self.parent_vertex[v1] = v2
     
-    def gadgetize_vertex(self, new_vertex, old_vertex):
-        if not self.teleport_mode: return
-        old_vertex = self.phantom_vertex(old_vertex)
-        self.phantom_vertices[new_vertex] = old_vertex
+    def fix_phase(self, v, target_phase):
+        current_phase = self.phase(v)
+        root_v = self.root_vertex(v)
+        if root_v not in self.vertex_groups:
+            if current_phase == target_phase: return
+            else: raise Exception('phase being fixed wrong')
+        sign = self.sign_change[root_v]
+        group = self.vertex_groups[root_v]
+        
+        B = sign * (target_phase - current_phase)
+        phase_sum = self.phase_sum[group]
+        
+        phase_mult = self.phase_mult[root_v]
+        self.phase_sum[group] = phase_sum - phase_mult * B
+        
+        self.set_phase(v, target_phase)
+        self.remove_vertex_from_group(root_v, group)
+    
+    def place_stored_phases(self):
+        for group, vertices in self.group_data.items():
+            v = list(vertices)[0]
+            phase = self.phase_sum[group] * self.phase_mult[v] * self.sign_change[v]
+            child_v = self.leaf_vertex(v)
+            self.add_to_phase(child_v, phase)
+        self.vertex_groups = {}
+        self.group_data = {}
+        self.phase_sum = {}
+        self.phase_mult = {}
+        self.sign_change = {}
     
     def unfuse_vertex(self, new_vertex, old_vertex):
-        if self.teleport_mode: return
-        for vertex_dict in self.teleported_phases[:]:
-            if old_vertex in vertex_dict: 
-                vertex_dict[new_vertex] = vertex_dict.pop(old_vertex)
-                self.phantom_vertices[new_vertex] = self.phantom_vertex(old_vertex)
-
-    def fix_phase(self, v, phase):
-        if self.teleport_mode: return
-        target_phase = phase - self.phase(v)
-        for vertex_dict in self.teleported_phases[:]:
-            if v in vertex_dict:
-                if target_phase == 0:
-                    if vertex_dict[v].denominator <= 2 and sum([p.denominator <= 2 for p in vertex_dict.values()]) == 2:
-                        vertex, p = [(vertex,p) for vertex,p in vertex_dict.items() if p.denominator <= 2 and vertex != v][0]
-                        self.add_to_phase(vertex, p)
-                        self.teleported_phases.remove(vertex_dict)
-                        if len(vertex_dict) > 2: self.teleported_phases.append({vertex:0 for vertex in vertex_dict if vertex != v})
-                        self.vertices_to_update.extend([vertex for vertex in vertex_dict])
-                        continue
-                    del vertex_dict[v]
-                    if len(vertex_dict) == 1:
-                        vertex, p = next(iter(vertex_dict.items()))
-                        self.add_to_phase(vertex,p)
-                        self.teleported_phases.remove(vertex_dict)
-                    self.vertices_to_update.extend([vertex for vertex in vertex_dict])
-                    return
-                
-                self.teleported_phases.remove(vertex_dict)
-                self.add_to_phase(v, target_phase)
-                
-                if target_phase == vertex_dict[v]:
-                    if len(vertex_dict) > 2: self.teleported_phases.append({vertex: 0 for vertex in vertex_dict if vertex != v})
-                    self.vertices_to_update.extend([vertex for vertex in vertex_dict])
-                    return
-                
-                new_vertex_dict = dict()
-                for vertex in vertex_dict:
-                    if vertex == v: continue
-                    m = self.simplifier.fusion_mult[self.phantom_vertex(vertex)][self.phantom_vertex(v)]
-                    new_vertex_dict[vertex] = vertex_dict[vertex] - m * target_phase
-                
-                if len(new_vertex_dict) == 1:
-                    vertex, p = next(iter(new_vertex_dict.items()))
-                    self.add_to_phase(vertex,p)
-                elif sum([p.denominator <= 2 for p in new_vertex_dict.values()]) == 1:
-                    vertex, p = [(vertex,p) for vertex,p in new_vertex_dict.items() if p.denominator <= 2][0]
-                    self.add_to_phase(vertex, p)
-                    if len(new_vertex_dict) > 1: self.teleported_phases.append({vertex:0 for vertex in vertex_dict})
-                else: self.teleported_phases.append(new_vertex_dict)
-
-                self.vertices_to_update.extend([vertex for vertex in new_vertex_dict])
-                return
-
+        if not self.teleport_mode:
+            if self.root_vertex(old_vertex) in self.vertex_groups: 
+                self.parent_vertex[new_vertex] = old_vertex
+            return
+        if self.root_vertex(old_vertex) in self.simplifier.non_clifford_vertices:
+            self.parent_vertex[new_vertex] = old_vertex
+    
     def check_phase(self, v, phase):
-        target_phase = phase - self.phase(v)
-        for vertex_dict in self.teleported_phases:
-            if v in vertex_dict:
-                if vertex_dict[v] == target_phase: return 1
-                return True
-        return target_phase == 0
-
+        root_v = self.root_vertex(v)
+        if root_v not in self.vertex_groups: return self.phase(v) == phase
+        return True
+    
     def check_two_pauli_phases(self, v1, v2):
-        vp1 = self.phase(v1)
-        vp2 = self.phase(v2)
-        pauli = [False,False]
-        for vertex_dict in self.teleported_phases:
-            if v1 in vertex_dict and v2 in vertex_dict:
-                if vertex_dict[v1] == -vp1: pauli[0] = 0
-                elif vertex_dict[v1] == 1-vp1: pauli[0] = 1
-                if vertex_dict[v2] == -vp2: pauli[1] = 0
-                elif vertex_dict[v2] == 1-vp2: pauli[1] = 1
-                if len(vertex_dict) > 2:
-                    if pauli[0] is False: pauli[0] = vp1 if vp1 in (0,1) else 0
-                    if pauli[1] is False: pauli[1] = vp2 if vp2 in (0,1) else 0
-                return pauli
-            if v1 in vertex_dict:
-                if vertex_dict[v1] == -vp1: pauli[0] = 0
-                elif vertex_dict[v1] == 1-vp1: pauli[0] = 1
-                else: pauli[0] = vp1 if vp1 in (0,1) else 0
-            elif v2 in vertex_dict:
-                if vertex_dict[v2] == -vp2: pauli[1] = 0
-                elif vertex_dict[v2] == 1-vp2: pauli[1] = 1
-                else: pauli[1] = vp2 if vp2 in (0,1) else 0
-        if pauli[0] is False: pauli[0] = vp1 if vp1 in (0,1) else False
-        if pauli[1] is False: pauli[1] = vp2 if vp2 in (0,1) else False
-        return pauli
+        pauli = {0,1}
+        root_v1 = self.root_vertex(v1)
+        root_v2 = self.root_vertex(v2)
+        group_1 = self.vertex_groups.get(root_v1)
+        group_2 = self.vertex_groups.get(root_v2)
+
+        if not group_1 and not group_2:
+            return [self.phase(v1) if self.phase(v1) in pauli else False, self.phase(v2) if self.phase(v2) in pauli else False]
+        if not group_1:
+            return [self.phase(v1) if self.phase(v1) in pauli else False, 0]
+        if not group_2:
+            return [0, self.phase(v2) if self.phase(v2) in pauli else False]
+        
+        if group_1 == group_2:
+            if len(self.group_data[group_1]) > 2:
+                return [0,0]
+            else:
+                current_phase_1 = self.phase(v1)
+                current_phase_2 = self.phase(v2)
+                sign_1 = self.sign_change[root_v1]
+                sign_2 = self.sign_change[root_v2]
+                phase_mult_1 = self.phase_mult[root_v1]
+                phase_mult_2 = self.phase_mult[root_v2]
+                phase_sum = self.phase_sum[group_1]
+                
+                new_phase_2 = current_phase_2 + sign_2 * phase_mult_2 * (phase_sum + sign_1 * phase_mult_1 * current_phase_1)
+                if new_phase_2 in pauli: return [0, new_phase_2]
+                else: return ([0, False, 0])
+        return [0,0]
     
     def successor(self, vertex):
         return self.flow_successor[vertex]
@@ -964,10 +955,14 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self._inputs = tuple(list(g._inputs))
         self._outputs = tuple(list(g._outputs))
         self.simplifier = g.simplifier
-        self.phantom_vertices = g.phantom_vertices.copy()
-        self.vertices_to_update = g.vertices_to_update.copy()
-        self.teleported_phases = [d.copy() for d in g.teleported_phases]
         self.teleport_mode = g.teleport_mode
+        self.parent_vertex = g.parent_vertex.copy()
+        self.vertex_groups = g.vertex_groups.copy()
+        self.group_data = {group: set(vertices) for group, vertices in g.group_data.items()}
+        self.phase_sum = g.phase_sum.copy()
+        self.phase_mult = g.phase_mult.copy()
+        self.sign_change = g.sign_change.copy()
+        self.vertices_to_update = g.vertices_to_update.copy()
         self.flow_successor = g.flow_successor.copy()
         self.flow_predecessor = g.flow_predecessor.copy()
 

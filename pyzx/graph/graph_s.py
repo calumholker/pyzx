@@ -61,10 +61,14 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         cpy._inputs = tuple(list(self._inputs))
         cpy._outputs = tuple(list(self._outputs))
         cpy.simplifier = self.simplifier
-        cpy.phantom_vertices = self.phantom_vertices.copy()
-        cpy.vertices_to_update = self.vertices_to_update.copy()
-        cpy.teleported_phases = [d.copy() for d in self.teleported_phases]
         cpy.teleport_mode = self.teleport_mode
+        cpy.parent_vertex = self.parent_vertex.copy()
+        cpy.vertex_groups = self.vertex_groups.copy()
+        cpy.group_data = {group: set(vertices) for group, vertices in self.group_data.items()}
+        cpy.phase_sum = self.phase_sum.copy()
+        cpy.phase_mult = self.phase_mult.copy()
+        cpy.sign_change = self.sign_change.copy()
+        cpy.vertices_to_update = self.vertices_to_update.copy()
         cpy.flow_successor = self.flow_successor.copy()
         cpy.flow_predecessor = self.flow_predecessor.copy()
         return cpy

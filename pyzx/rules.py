@@ -397,7 +397,7 @@ def match_pivot_boundary(
         w = None
         bound = None
         for n in g.neighbors(v):
-            if g.type(n) != VertexType.Z or len(g.neighbors(n)) == 1 or n in consumed_vertices or g.is_ground(n) in consumed_vertices: 
+            if g.type(n) != VertexType.Z or len(g.neighbors(n)) == 1 or n in consumed_vertices or g.is_ground(n): 
                 good_vert = False
                 break
             
@@ -515,7 +515,7 @@ def gadgetize(g: BaseGraph[VT,ET], vertices: List[VT]) -> None:
         edge_list.append(g.edge(v,v0))
         edge_list.append(g.edge(v0,vp))
         
-        if g.simplifier: g.gadgetize_vertex(vp,v)
+        if g.simplifier: g.unfuse_vertex(vp,v)
         
     g.add_edges(edge_list, EdgeType.HADAMARD)
     return
@@ -572,7 +572,6 @@ def match_lcomp_parallel(
         
         if allow_interacting_matches: continue
         for n in vn: candidates.discard(n)
-        
     return m
 
 def lcomp(g: BaseGraph[VT,ET], matches: List[MatchLcompType[VT]]) -> RewriteOutputType[ET,VT]:
@@ -698,7 +697,7 @@ def match_phase_gadgets(g: BaseGraph[VT,ET]) -> List[MatchGadgetType[VT]]:
 
     m: List[MatchGadgetType[VT]] = []
     for par, gad in parities.items():
-        if len(gad) == 1: 
+        if len(gad) == 1:
             n = gad[0]
             v = gadgets[n]
             if phases[n] != 0: # If the phase of the axel vertex is pi, we change the phase of the gadget
@@ -995,8 +994,6 @@ def match_id_fuse(
         m.append((v,v0,v1))
         i += 1
         
-        # if g.simplifier: g.fix_phase(v,0)
-        
         if allow_interacting_matches: continue
         candidates.discard(v0)
         candidates.discard(v1)
@@ -1115,15 +1112,15 @@ def get_lcomp_unfusion_matches(
     
     unfusion_matches = dict()
     # potential_unfusion_neighbours = [list(subset) for i in range(len(vn)-1) for subset in itertools.combinations(vn, i)]
-    potential_unfusion_neighbours = [list(subset) for i in range(2) for subset in itertools.combinations(vn, i)]
-    # potential_unfusion_neighbours = []
+    # potential_unfusion_neighbours = [list(subset) for i in range(2) for subset in itertools.combinations(vn, i)]
+    potential_unfusion_neighbours = [[]]
     
     for neighbours_to_unfuse in potential_unfusion_neighbours:
         if not set(vb) <= set(neighbours_to_unfuse): continue
         
         if len(neighbours_to_unfuse) == 0:
             if g.simplifier:
-                if g.check_phase(v,Fraction(1,2)) is False and g.check_phase(v,Fraction(3,2)) is False: continue
+                if not (g.check_phase(v,Fraction(1,2)) or g.check_phase(v,Fraction(3,2))): continue
             elif g.phase(v) not in (Fraction(1,2),Fraction(3,2)): continue
         
         match = (v,tuple(vn),tuple(neighbours_to_unfuse))
@@ -1137,13 +1134,8 @@ def lcomp_unfuse(g: BaseGraph[VT,ET], matches: List[MatchLcompUnfuseType[VT]]) -
     for v, vn, neighbours_to_unfuse in matches:
         if len(neighbours_to_unfuse) == 0:
             if g.simplifier:
-                fix_1 = g.check_phase(v, Fraction(1/2))
-                if fix_1 is True:
-                    fix_3 = g.check_phase(v,Fraction(3,2))
-                    if fix_3 is True: g.fix_phase(v, Fraction(1/2))
-                    elif fix_3 == 1: g.fix_phase(v, Fraction(3/2))
-                elif fix_1 == 1: g.fix_phase(v, Fraction(1/2))
-                else: g.fix_phase(v, Fraction(3/2))
+                if g.check_phase(v, Fraction(1,2)): g.fix_phase(v, Fraction(1,2))
+                else: g.fix_phase(v, Fraction(3,2))
             updated_matches.append((v,list(vn)))
             continue
         v0, vp = unfuse_neighbours(g,v,neighbours_to_unfuse,Fraction(1,2))
@@ -1169,6 +1161,7 @@ def match_pivot_unfuse(
     i = 0
     m: Dict[MatchPivotUnfuseType,int] = dict()
     while (num == -1 or i < num) and len(candidates) > 0:
+        
         e = candidates.pop()
         if check_edge_types and g.edge_type(e) != EdgeType.HADAMARD: continue
         
@@ -1176,14 +1169,13 @@ def match_pivot_unfuse(
         if not (g.type(v0) == VertexType.Z and g.type(v1) == VertexType.Z): continue
         if g.is_ground(v0) or g.is_ground(v1): continue
         if any(len(g.neighbors(v)) == 1 for v in (v0,v1)): continue
-        if any(len(g.neighbors(n)) == 1 for v in (v0,v1) for n in g.neighbors(v)): continue
+        # if any(len(g.neighbors(n)) == 1 for v in (v0,v1) for n in g.neighbors(v)): continue
         
         invalid_edge = False
         v0n = g.neighbors(v0)
         v0b = []
         for n in v0n:
-            if g.type(n) == VertexType.Z and any(len(g.neighbors(n2))==1 for n2 in g.neighbors(n)): v0b.append(n)
-            elif g.type(n) == VertexType.Z and g.edge_type(g.edge(v0,n)) == EdgeType.HADAMARD: continue
+            if g.type(n) == VertexType.Z and g.edge_type(g.edge(v0,n)) == EdgeType.HADAMARD: continue
             elif g.type(n) == VertexType.BOUNDARY: v0b.append(n)
             else:
                 invalid_edge = True
@@ -1193,8 +1185,7 @@ def match_pivot_unfuse(
         v1n = g.neighbors(v1)
         v1b = []
         for n in v1n:
-            if g.type(n) == VertexType.Z and any(len(g.neighbors(n2))==1 for n2 in g.neighbors(n)): v1b.append(n)
-            elif g.type(n) == VertexType.Z and g.edge_type(g.edge(v1,n)) == EdgeType.HADAMARD: continue
+            if g.type(n) == VertexType.Z and g.edge_type(g.edge(v1,n)) == EdgeType.HADAMARD: continue
             elif g.type(n) == VertexType.BOUNDARY: v1b.append(n)
             else:
                 invalid_edge = True
@@ -1206,7 +1197,7 @@ def match_pivot_unfuse(
 
         m.update(unfusion_matches)
         i += 1
-
+        
         if allow_interacting_matches: continue
         for v in v0n:
             for c in g.incident_edges(v): candidates.discard(c)
@@ -1218,28 +1209,23 @@ def get_pivot_unfusion_matches(g: BaseGraph[VT,ET], x, v0: VT, v1: VT, v0n, v1n,
     unfusion_matches = dict()
     # potential_unfusion_neighbors_v0 = [list(subset) for i in range(len(v0n)-1) for subset in itertools.combinations(v0n, i)]
     # potential_unfusion_neighbors_v1 = [list(subset) for i in range(len(v1n)-1) for subset in itertools.combinations(v1n, i)]
-    potential_unfusion_neighbors_v0 = [list(subset) for i in range(2) for subset in itertools.combinations(v0n, i)]
-    potential_unfusion_neighbors_v1 = [list(subset) for i in range(2) for subset in itertools.combinations(v1n, i)]
-    potential_unfusion_neighbors = [(n0,n1) for n0 in potential_unfusion_neighbors_v0 for n1 in potential_unfusion_neighbors_v1]
-    # potential_unfusion_neighbors = [([],[])]
+    # potential_unfusion_neighbors_v0 = [list(subset) for i in range(2) for subset in itertools.combinations(v0n, i)]
+    # potential_unfusion_neighbors_v1 = [list(subset) for i in range(2) for subset in itertools.combinations(v1n, i)]
+    # potential_unfusion_neighbors = [(n0,n1) for n0 in potential_unfusion_neighbors_v0 for n1 in potential_unfusion_neighbors_v1]
+    potential_unfusion_neighbors = [([],[])]
     
     for neighbours_to_unfuse in potential_unfusion_neighbors:
         if v0 in neighbours_to_unfuse[1] or v1 in neighbours_to_unfuse[0]: continue
-        if not set(v0b) <= set(neighbours_to_unfuse[0]): continue
-        if not set(v1b) <= set(neighbours_to_unfuse[1]): continue
-        if len(neighbours_to_unfuse[0]) == 0 and len(neighbours_to_unfuse[1]) == 0:
-            if g.simplifier:
-                if any(p is False for p in g.check_two_pauli_phases(v0, v1)): continue
-            elif any(g.phase(v) not in (0,1) for v in (v0,v1)): continue
-        elif len(neighbours_to_unfuse[0]) == 0:
-            if g.simplifier:
-                if g.check_phase(v0,0) is False and g.check_phase(v0,1) is False: continue
-            elif g.phase(v0) not in (0,1): continue
-        elif len(neighbours_to_unfuse[1]) == 0:
-            if g.simplifier:
-                if g.check_phase(v1,0) is False and g.check_phase(v1,1) is False: continue
-            elif g.phase(v1) not in (0,1): continue
-            
+        if (v0b and v1b) and not ((set(v0b) <= set(neighbours_to_unfuse[0])) or (set(v1b) <= set(neighbours_to_unfuse[1]))): continue
+        
+        if g.simplifier: phases = g.check_two_pauli_phases(v0, v1)
+        else: phases = [g.phase(v0) if g.phase(v0) in {0,1} else False, g.phase(v1) if g.phase(v1) in {0,1} else False]
+        
+        if len(phases) == 3 and neighbours_to_unfuse == ([],[]): continue
+        if phases is [False, False] and [] in neighbours_to_unfuse: continue
+        if phases[0] is False and len(neighbours_to_unfuse[0]) == 0: continue
+        if phases[1] is False and len(neighbours_to_unfuse[1]) == 0: continue
+        
         match = (v0,v1,tuple(v0b),tuple(v1b),tuple(tuple(ns) for ns in neighbours_to_unfuse))
         score = heuristic(g, x, match)
         if score is None: continue
@@ -1250,43 +1236,35 @@ def get_pivot_unfusion_matches(g: BaseGraph[VT,ET], x, v0: VT, v1: VT, v0n, v1n,
 def pivot_unfuse(g: BaseGraph[VT,ET], matches: List[MatchPivotUnfuseType[VT]]) -> RewriteOutputType[ET,VT]:
     updated_matches = []
     for v0, v1, v0b, v1b, neighbours_to_unfuse in matches:
-        if len(neighbours_to_unfuse[0]) == 0 and len(neighbours_to_unfuse[1]) == 0:
+        v0b = list(set(v0b).difference(set(neighbours_to_unfuse[0])))
+        v1b = list(set(v1b).difference(set(neighbours_to_unfuse[1])))
+        
+        if len(neighbours_to_unfuse[0]) == 0:
+            if len(neighbours_to_unfuse[1]) == 0:
+                if g.simplifier:
+                    phases = g.check_two_pauli_phases(v0,v1)
+                    g.fix_phase(v0,phases[0])
+                    g.fix_phase(v1,phases[1])
+                updated_matches.append((v0,v1,v0b,v1b))
+                continue
+            else:
+                if g.simplifier:
+                    phases = g.check_two_pauli_phases(v0,v1)
+                    if len(phases) == 3: g.fix_phase(v0,0)
+                    else: g.fix_phase(v0,phases[0])
+                unfuse_neighbours(g, v1, neighbours_to_unfuse[1], 0)
+                updated_matches.append((v0,v1,v0b,v1b))
+                continue
+        elif len(neighbours_to_unfuse[1]) == 0:
             if g.simplifier:
                 phases = g.check_two_pauli_phases(v0,v1)
-                g.fix_phase(v0,phases[0])
-                g.fix_phase(v1,phases[1])
+                if len(phases) == 3: g.fix_phase(v1,0)
+                else: g.fix_phase(v1,phases[1])
+            unfuse_neighbours(g, v0, neighbours_to_unfuse[0], 0)
             updated_matches.append((v0,v1,v0b,v1b))
             continue
-        if len(neighbours_to_unfuse[0]) == 0:
-            if g.simplifier:
-                fix_0 = g.check_phase(v0, 0)
-                if fix_0 is True:
-                    fix_1 = g.check_phase(v0,1)
-                    if fix_1 is True: g.fix_phase(v0,0)
-                    elif fix_1 == 1: g.fix_phase(v0,1)
-                elif fix_0 == 1: g.fix_phase(v0,0)
-                else: g.fix_phase(v0,1)
-            unfuse_neighbours(g,v1,neighbours_to_unfuse[1],0)
-            v1b = list(set(v1b).difference(set(neighbours_to_unfuse[1])))
-            updated_matches.append((v0,v1,v0b,v1b))
-            continue
-        if len(neighbours_to_unfuse[1]) == 0:
-            if g.simplifier:
-                fix_0 = g.check_phase(v1, 0)
-                if fix_0 is True:
-                    fix_1 = g.check_phase(v1,1)
-                    if fix_1 is True: g.fix_phase(v1,0)
-                    elif fix_1 == 1: g.fix_phase(v1,1)
-                elif fix_0 == 1: g.fix_phase(v1,0)
-                else: g.fix_phase(v1,1)
-            unfuse_neighbours(g,v0,neighbours_to_unfuse[0],0)
-            v0b = list(set(v0b).difference(set(neighbours_to_unfuse[0])))
-            updated_matches.append((v0,v1,v0b,v1b))
-            continue
-        unfuse_neighbours(g,v0,neighbours_to_unfuse[0],0)
-        v0b = list(set(v0b).difference(set(neighbours_to_unfuse[0])))
-        unfuse_neighbours(g,v1,neighbours_to_unfuse[1],0)
-        v1b = list(set(v1b).difference(set(neighbours_to_unfuse[1])))
+        unfuse_neighbours(g, v0, neighbours_to_unfuse[0], 0)
+        unfuse_neighbours(g, v1, neighbours_to_unfuse[1], 0)
         updated_matches.append((v0,v1,v0b,v1b))
     return pivot(g, updated_matches)
 
@@ -1300,6 +1278,12 @@ def match_2Q_reduce(g: BaseGraph[VT,ET], x, matchf: Optional[Callable[[VT],bool]
     m.update({(None,None,match):id_fuse_2Q_reduce_heuristic(g,x,match) for match in match_id_fuse(g,matchf,allow_interacting_matches=True)})
     return m
 
+
+def unfuse(g: BaseGraph[VT,ET], match: MatchUnfuseType) -> RewriteOutputType[ET,VT]:
+    if match[0]: return lcomp_unfuse(g,[match[0]])
+    if match[1]: return pivot_unfuse(g,[match[1]])
+    if match[2]: return id_fuse(g,[match[2]])
+    
 def remove_updated_2Q_reduce_matches(current_matches: Dict[MatchUnfuseType[VT],int],removed_vertices: List[VT], verts_to_update: List[VT]):
     updated_matches = dict()
     for m, val in current_matches.items():
@@ -1313,26 +1297,23 @@ def remove_updated_2Q_reduce_matches(current_matches: Dict[MatchUnfuseType[VT],i
         updated_matches[m] = val
     return updated_matches
 
-def unfuse(g: BaseGraph[VT,ET], match: MatchUnfuseType) -> RewriteOutputType[ET,VT]:
-    if match[0]: return lcomp_unfuse(g,[match[0]])
-    if match[1]: return pivot_unfuse(g,[match[1]])
-    if match[2]: return id_fuse(g,[match[2]])
-
 def match_int_cliff(g, x=None, matchf=None):
-    m = dict()
-    min_red = 0
-    for match in match_lcomp_parallel(g,vertexf=matchf,allow_interacting_matches=True):
-        stats = lcomp_statistics(g,match[0],match[1],[])
-        if stats[0]-stats[1] < min_red: continue
-        m[(match,None,None)] = stats[0]-stats[1]
-    for match in match_pivot_parallel(g,matchf=matchf,allow_interacting_matches=True):
-        stats = pivot_statistics(g,match[0],match[1],match[2],match[3],[[],[]])
-        if stats[0]-stats[1] < min_red: continue
-        m[(None,match,None)] = stats[0]-stats[1]
-    for match in match_id_fuse(g,matchf,allow_interacting_matches=True):
-        stats = id_fuse_statistics(g,match[0],match[1],match[2])
-        if stats[0]-stats[1] < min_red: continue
-        m[(None,None,match)] = stats[0]-stats[1]
+    m = {}
+    for match in match_lcomp_parallel(g, vertexf=matchf, allow_interacting_matches=True):
+        edges_removed, vertices_removed = lcomp_statistics(g,match[0],match[1],[])
+        heuristic = edges_removed - vertices_removed
+        if heuristic < 0: continue
+        m[(match,None,None)] = heuristic
+    for match in match_pivot_parallel(g, matchf=matchf,allow_interacting_matches=True):
+        edges_removed, vertices_removed = pivot_statistics(g,match[0],match[1],match[2],match[3],[[],[]])
+        heuristic = edges_removed - vertices_removed
+        if heuristic < 0: continue
+        m[(None,match,None)] = heuristic
+    for match in match_id_fuse(g,matchf, allow_interacting_matches=True):
+        edges_removed, vertices_removed = id_fuse_statistics(g,match[0],match[1],match[2])
+        heuristic = edges_removed - vertices_removed
+        if heuristic < 0: continue
+        m[(None,None,match)] = heuristic
     return m
 
 def int_cliff(g,match):
