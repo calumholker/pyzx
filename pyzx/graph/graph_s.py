@@ -69,9 +69,31 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         cpy.phase_mult = self.phase_mult.copy()
         cpy.sign_change = self.sign_change.copy()
         cpy.vertices_to_update = self.vertices_to_update.copy()
-        cpy.flow_successor = self.flow_successor.copy()
-        cpy.flow_predecessor = self.flow_predecessor.copy()
         return cpy
+    
+    def replace(self, g: 'GraphS') -> None:
+        self.graph = g.graph.copy()
+        self._vindex = g._vindex
+        self.nedges = g.nedges
+        self.ty = g.ty.copy()
+        self._phase = g._phase.copy()
+        self._qindex = g._qindex.copy()
+        self._maxq = g._maxq
+        self._rindex = g._rindex.copy()
+        self._maxr = g._maxr
+        self._vdata = g._vdata.copy()
+        self.scalar = g.scalar.copy()
+        self._inputs = tuple(list(g._inputs))
+        self._outputs = tuple(list(g._outputs))
+        self.phase_teleporter = g.phase_teleporter
+        self.phase_tracking = g.phase_tracking
+        self.parent_vertex = g.parent_vertex.copy()
+        self.vertex_groups = g.vertex_groups.copy()
+        self.group_data = {group: set(vertices) for group, vertices in g.group_data.items()}
+        self.phase_sum = g.phase_sum.copy()
+        self.phase_mult = g.phase_mult.copy()
+        self.sign_change = g.sign_change.copy()
+        self.vertices_to_update = g.vertices_to_update.copy()
 
     def vindex(self): return self._vindex
     def depth(self): 
@@ -145,8 +167,6 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
             except: pass
             try: del self._rindex[v]
             except: pass
-            self.flow_successor = {v1: v2 for v1, v2 in self.flow_successor.items() if v1 != v and v2 != v}
-            self.flow_predecessor = {v1: v2 for v1, v2 in self.flow_predecessor.items() if v1 != v and v2 != v}
             self._grounds.discard(v)
             self._vdata.pop(v,None)
         self._vindex = max(self.vertices(),default=0) + 1

@@ -772,7 +772,7 @@ def extract_simple(g: BaseGraph[VT, ET], up_to_perm: bool = True) -> Circuit:
         
         front = {list(g.neighbors(o))[0]: q for q,o in enumerate(outputs)}
         gadgets = []
-        parity_matrix_T = []
+        parity_matrix_T: List[List[Literal[0,1]]] = []
         zphases = []
         for v in g.vertices():
             if v not in g.inputs() and v not in g.outputs() and g.vertex_degree(v)==1:

@@ -14,21 +14,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple, List, Dict, Set, FrozenSet
-from typing import Any, Callable, TypeVar, Optional, Union
+from typing import TYPE_CHECKING, List, Callable, Optional, Union, Generic, Tuple, Dict, Iterator, Any
 from typing_extensions import Literal
 
-from fractions import Fraction
-import math
-
-from .utils import VertexType, EdgeType, toggle_edge, vertex_is_zx, FloatInt, FractionLike
+from .utils import EdgeType, VertexType, toggle_edge, vertex_is_zx, toggle_vertex
 from .graph.base import BaseGraph, VT, ET
 
-MatchPivotUnfuseType = Tuple[VT,VT,List[VT],List[VT],Tuple[VT,VT]]
-MatchLcompUnfuseType = Tuple[VT,List[VT],VT]
 MatchIdFuseType = Tuple[VT,VT,VT]
+MatchLcompUnfuseType = Tuple[VT,Tuple[VT,...],Tuple[VT,...]]
+MatchPivotUnfuseType = Tuple[VT,VT,Tuple[VT,...],Tuple[VT,...],Tuple[Tuple[VT,...],...]]
 
-def pivot_statistics(g: BaseGraph[VT,ET], v0: VT, v1: VT, v0b, v1b, neighbours_to_unfuse: Tuple[VT,VT]):
+def pivot_statistics(g: BaseGraph[VT,ET], v0: VT, v1: VT, v0b: Tuple[VT,...], v1b: Tuple[VT,...], neighbours_to_unfuse: Tuple[Tuple[VT,...],...]) -> Tuple[int,int]:
     v0n = set(g.neighbors(v0))
     v0n.remove(v1)
     if len(neighbours_to_unfuse[0]) > 0: 
@@ -66,15 +62,15 @@ def pivot_statistics(g: BaseGraph[VT,ET], v0: VT, v1: VT, v0b, v1b, neighbours_t
     vertices_removed = 2 - (2*num_unfusions)
     return edges_removed, vertices_removed
 
-def lcomp_statistics(g: BaseGraph[VT,ET], v: VT, vn, neighbours_to_unfuse: VT):
+def lcomp_statistics(g: BaseGraph[VT,ET], v: VT, vn_t: Tuple[VT,...], neighbours_to_unfuse: Tuple[VT,...]) -> Tuple[int,int]:
     if len(neighbours_to_unfuse) > 0:
-        vn = set(vn).difference(set(neighbours_to_unfuse))
+        vn = set(vn_t).difference(set(neighbours_to_unfuse))
         num_vn = len(vn) + 1
     else:
-        vn = set(vn)
+        vn = set(vn_t)
         num_vn = len(vn)
     
-    max_new_connections = num_vn * (num_vn-1)/2
+    max_new_connections = int(num_vn * (num_vn-1)/2)
     num_edges_between_neighbours = 0
     for n in vn: num_edges_between_neighbours += len(vn.intersection(set(g.neighbors(n)))) #double counted edges so don't need to multiply by 2
     
@@ -83,7 +79,7 @@ def lcomp_statistics(g: BaseGraph[VT,ET], v: VT, vn, neighbours_to_unfuse: VT):
     vertices_removed = 1 - (2*num_unfusions)
     return edges_removed, vertices_removed
 
-def id_fuse_statistics(g: BaseGraph[VT,ET], v: VT, v0: VT, v1: VT):
+def id_fuse_statistics(g: BaseGraph[VT,ET], v: VT, v0: VT, v1: VT) -> Tuple[int,int]:
     edges_removed = 2
     vertices_removed = 2
     for n in g.neighbors(v0):
@@ -103,14 +99,15 @@ def lcomp_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchLcompUnfuseType, sc
     if twoQ_removed == 0 and vertices_removed > 0: return score_params[0]*twoQ_removed
     return None
 
-def pivot_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchPivotUnfuseType, score_params):
+def pivot_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchPivotUnfuseType, score_params: List[float]) -> Optional[float]:
     edges_removed, vertices_removed = pivot_statistics(g, match[0], match[1], match[2], match[3], match[4])
     twoQ_removed = edges_removed - vertices_removed
     if twoQ_removed > 0: return score_params[1]*twoQ_removed
     if twoQ_removed == 0 and vertices_removed > 0: return score_params[1]*twoQ_removed
     return None
 
-def id_fuse_2Q_reduce_heuristic(g: BaseGraph[VT,ET], match: MatchIdFuseType, score_params):
+def id_fuse_2Q_reduce_heuristic(g: BaseGraph[VT,ET], match: MatchIdFuseType, score_params: List[float]) -> float:
     edges_removed, vertices_removed = id_fuse_statistics(g, match[0], match[1], match[2])
     twoQ_removed = edges_removed - vertices_removed
-    if twoQ_removed >= 0: return score_params[2]*twoQ_removed
+    assert(twoQ_removed >= 0)
+    return score_params[2]*twoQ_removed

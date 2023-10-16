@@ -65,7 +65,7 @@ def pack_indices(lst: List[FloatInt]) -> Mapping[FloatInt,int]:
     return d
 
 VT = TypeVar('VT', bound=int) # The type that is used for representing vertices (e.g. an integer)
-ET = TypeVar('ET') # The type used for representing edges (e.g. a pair of integers)
+ET = TypeVar('ET', bound=Tuple[int,int]) # The type used for representing edges (e.g. a pair of integers)
 
 class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
     """Base class for letting graph backends interact with PyZX.
@@ -79,23 +79,19 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.scalar: Scalar = Scalar()
         
         # phase_tracker for circuit simplifications
-        self.phase_tracking = False
-        self.phase_teleporter = None
-        self.parent_vertex = {}
-        self.vertex_groups = {}
-        self.group_data = {}
-        self.phase_sum = {}
-        self.phase_mult = {}
-        self.sign_change = {}
-        self.vertices_to_update = []
+        self.phase_tracking: bool = False
+        self.phase_teleporter: Optional['simplify.PhaseTeleporter'] = None
+        self.parent_vertex: Dict[VT,VT] = {}
+        self.vertex_groups: Dict[VT,int] = {}
+        self.group_data: Dict[int,Set[VT]] = {}
+        self.phase_sum: Dict[int,FractionLike] = {}
+        self.phase_mult: Dict[VT,int] = {}
+        self.sign_change: Dict[VT,int] = {}
+        self.vertices_to_update: List[VT] = []
 
         # merge_vdata(v0,v1) is an optional, custom function for merging
         # vdata of v1 into v0 during spider fusion etc.
         self.merge_vdata: Optional[Callable[[VT,VT], None]] = None
-        
-        # for storing causal flow
-        self.flow_successor: Dict[VT, VT] = dict()
-        self.flow_predecessor: Dict[VT, VT] = dict()
 
     def __str__(self) -> str:
         return "Graph({} vertices, {} edges)".format(
@@ -191,7 +187,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         Used in lookahead extraction.
         """
         return self.copy()
-
+    
     def map_qubits(self, qubit_map:Mapping[int,Tuple[float,float]]) -> None:
         for v in self.vertices():
             q = self.qubit(v)
@@ -780,7 +776,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.add_edge_table({e : [1,0] if edgetype == EdgeType.SIMPLE else [0,1]})
 
     def set_phase_teleporter(self, teleporter: 'simplify.PhaseTeleporter', fusing_mode = True) -> None:
-        """Points towards an instance of the class :class:`~pyzx.simplify.Simplifier`.
+        """Points towards an instance of the class :class:`~pyzx.simplify.PhaseTeleporter`.
         Used for phase teleportation."""
         self.phase_tracking = True
         if fusing_mode:
@@ -789,7 +785,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         for group_num, group in enumerate(teleporter.get_vertex_groups()):
             if len(group) == 1: continue
             self.group_data[group_num] = set(group)
-            phase_sum = 0
+            phase_sum = Fraction(0)
             for v in group:
                 self.vertex_groups[v] = group_num
                 mult = teleporter.phase_mult[v]
@@ -799,16 +795,16 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
                 self.set_phase(v,0)
             self.phase_sum[group_num] = phase_sum
 
-    def root_vertex(self, v):
+    def root_vertex(self, v:VT) -> VT:
         while v in self.parent_vertex: v = self.parent_vertex[v]
         return v
     
-    def leaf_vertex(self, v):
+    def leaf_vertex(self, v:VT) -> VT:
         for child, parent in self.parent_vertex.items():
             if parent == v: return self.leaf_vertex(child)
         return v
     
-    def phase_negate(self, v):
+    def phase_negate(self, v: VT) -> None:
         root_v = self.root_vertex(v)
         if self.phase_teleporter:
             if root_v not in self.phase_teleporter.non_clifford_vertices: return
@@ -816,7 +812,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
             return
         if root_v in self.vertex_groups: self.sign_change[root_v] *= -1
     
-    def remove_vertex_from_group(self, v, group):
+    def remove_vertex_from_group(self, v: VT, group: int) -> None:
         del self.vertex_groups[v]
         del self.phase_mult[v]
         del self.sign_change[v]
@@ -836,7 +832,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         elif len(self.group_data[group]) == 2:
             self.vertices_to_update.extend([self.leaf_vertex(u) for u in self.group_data[group]])
     
-    def fuse_phases(self,v1,v2):
+    def fuse_phases(self,v1: VT,v2: VT) -> None:
         root_v1 = self.root_vertex(v1)
         root_v2 = self.root_vertex(v2)
         
@@ -851,18 +847,17 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         group_2 = self.vertex_groups.get(root_v2)
         if group_2 is not None:
             if group_1 is not None:
-                if group_1 == group_2:
-                    self.remove_vertex_from_group(root_v2, group_1)
-                else: raise Exception('Unexpected fusing of two vertex groups')
+                assert(group_1 == group_2)
+                self.remove_vertex_from_group(root_v2, group_1)
             else:
                 self.parent_vertex[v1] = v2
     
-    def fix_phase(self, v, target_phase):
+    def fix_phase(self, v:VT, target_phase: FractionLike) -> None:
         current_phase = self.phase(v)
         root_v = self.root_vertex(v)
         if root_v not in self.vertex_groups:
-            if current_phase == target_phase: return
-            else: raise Exception('phase being fixed wrong')
+            assert(current_phase == target_phase)
+            return
         sign = self.sign_change[root_v]
         group = self.vertex_groups[root_v]
         
@@ -875,7 +870,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.set_phase(v, target_phase)
         self.remove_vertex_from_group(root_v, group)
     
-    def place_tracked_phases(self):
+    def place_tracked_phases(self) -> None:
         for group, vertices in self.group_data.items():
             v = list(vertices)[0]
             phase = self.phase_sum[group] * self.phase_mult[v] * self.sign_change[v]
@@ -888,7 +883,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.sign_change = {}
         self.phase_tracking = False
     
-    def unfuse_vertex(self, new_vertex, old_vertex):
+    def unfuse_vertex(self, new_vertex: VT, old_vertex: VT) -> None:
         if self.phase_teleporter:
             if self.root_vertex(old_vertex) in self.phase_teleporter.non_clifford_vertices:
                 self.parent_vertex[new_vertex] = old_vertex
@@ -896,12 +891,12 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         if self.root_vertex(old_vertex) in self.vertex_groups: 
             self.parent_vertex[new_vertex] = old_vertex
     
-    def check_phase(self, v, phase):
+    def check_phase(self, v: VT, phase: FractionLike) -> bool:
         root_v = self.root_vertex(v)
         if root_v not in self.vertex_groups: return self.phase(v) == phase
         return True
     
-    def check_two_pauli_phases(self, v1, v2):
+    def check_two_pauli_phases(self, v1: VT, v2: VT) -> Optional[List[Optional[FractionLike]]]:
         pauli = {0,1}
         root_v1 = self.root_vertex(v1)
         root_v2 = self.root_vertex(v2)
@@ -909,11 +904,11 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         group_2 = self.vertex_groups.get(root_v2)
 
         if not group_1 and not group_2:
-            return [self.phase(v1) if self.phase(v1) in pauli else False, self.phase(v2) if self.phase(v2) in pauli else False]
+            return [self.phase(v1) if self.phase(v1) in pauli else None, self.phase(v2) if self.phase(v2) in pauli else None]
         if not group_1:
-            return [self.phase(v1) if self.phase(v1) in pauli else False, 0]
+            return [self.phase(v1) if self.phase(v1) in pauli else None, 0]
         if not group_2:
-            return [0, self.phase(v2) if self.phase(v2) in pauli else False]
+            return [0, self.phase(v2) if self.phase(v2) in pauli else None]
         
         if group_1 == group_2:
             if len(self.group_data[group_1]) > 2:
@@ -929,42 +924,11 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
                 
                 new_phase_2 = current_phase_2 + sign_2 * phase_mult_2 * (phase_sum + sign_1 * phase_mult_1 * current_phase_1)
                 if new_phase_2 in pauli: return [0, new_phase_2]
-                else: return ([0, False, 0])
+                else: return None
         return [0,0]
     
-    def successor(self, vertex):
-        return self.flow_successor[vertex]
-    def predecessor(self, vertex):
-        return self.flow_predecessor[vertex]
-    def update_flow(self, flow):
-        self.flow_successor = flow
-        self.flow_predecessor = {v2: v1 for v1, v2 in flow.items()}
-
-    def replace(self, g):
-        self.graph = g.graph.copy()
-        self._vindex = g._vindex
-        self.nedges = g.nedges
-        self.ty = g.ty.copy()
-        self._phase = g._phase.copy()
-        self._qindex = g._qindex.copy()
-        self._maxq = g._maxq
-        self._rindex = g._rindex.copy()
-        self._maxr = g._maxr
-        self._vdata = g._vdata.copy()
-        self.scalar = g.scalar.copy()
-        self._inputs = tuple(list(g._inputs))
-        self._outputs = tuple(list(g._outputs))
-        self.phase_teleporter = g.phase_teleporter
-        self.phase_tracking = g.phase_tracking
-        self.parent_vertex = g.parent_vertex.copy()
-        self.vertex_groups = g.vertex_groups.copy()
-        self.group_data = {group: set(vertices) for group, vertices in g.group_data.items()}
-        self.phase_sum = g.phase_sum.copy()
-        self.phase_mult = g.phase_mult.copy()
-        self.sign_change = g.sign_change.copy()
-        self.vertices_to_update = g.vertices_to_update.copy()
-        self.flow_successor = g.flow_successor.copy()
-        self.flow_predecessor = g.flow_predecessor.copy()
+    def replace(self, g) -> None:
+        raise NotImplementedError("Not implemented on backend " + type(self).backend)
 
     def remove_vertices(self, vertices: Iterable[VT]) -> None:
         """Removes the list of vertices from the graph."""

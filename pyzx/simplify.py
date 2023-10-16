@@ -26,7 +26,7 @@ __all__ = ['bialg_simp','spider_simp', 'id_simp', 'phase_free_simp', 'pivot_simp
         'lcomp_simp', 'clifford_simp', 'tcount', 'to_gh', 'to_rg',
         'full_reduce', 'teleport_reduce', 'reduce_scalar', 'supplementarity_simp']
 
-from typing import List, Callable, Optional, Union, Generic, Tuple, Dict, Iterator
+from typing import List, Callable, Optional, Union, Generic, Tuple, Dict, Iterator, Any
 
 from .utils import EdgeType, VertexType, toggle_edge, vertex_is_zx, toggle_vertex
 from .rules import *
@@ -52,14 +52,13 @@ class Stats(object):
         s += "%s TOTAL" % str(nt).rjust(6)
         return s
 
-
 def simp(
     g: BaseGraph[VT,ET],
     name: str,
     match: Callable[..., List[MatchObject]],
-    rewrite: Callable[[BaseGraph[VT,ET],List[MatchObject]],RewriteOutputType[ET,VT]],
-    matchf:Optional[Union[Callable[[ET],bool], Callable[[VT],bool]]]=None,
-    max_num_rewrites:int = None,
+    rewrite: Callable[[BaseGraph[VT,ET],List[MatchObject]], RewriteOutputType[ET,VT]],
+    matchf: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]]=None,
+    max_num_rewrites: Optional[int] = None,
     quiet:bool=False,
     stats:Optional[Stats]=None) -> int:
     """Helper method for constructing simplification strategies based on the rules present in rules_.
@@ -106,8 +105,8 @@ def simp(
     if not quiet and num_iterations>0: print(f' {num_iterations} iterations')
     return num_iterations
 
-def pivot_simp(g: BaseGraph[VT,ET], max_num_rewrites = None, matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'pivot_simp', match_pivot_parallel, pivot, matchf=matchf, max_num_rewrites = max_num_rewrites, quiet=quiet, stats=stats)
+def pivot_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'pivot_simp', match_pivot_parallel, pivot, matchf=matchf, quiet=quiet, stats=stats)
 
 def pivot_gadget_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
     return simp(g, 'pivot_gadget_simp', match_pivot_gadget, pivot_gadget, matchf=matchf, quiet=quiet, stats=stats)
@@ -148,7 +147,7 @@ def phase_free_simp(g:BaseGraph[VT,ET], quiet:bool=False, stats:Optional[Stats]=
     i2 = bialg_simp(g, quiet=quiet, stats=stats)
     return i1+i2
 
-def basic_simp(g:BaseGraph[VT,ET], quiet: bool=True, stats:Optional[Stats] = None):
+def basic_simp(g:BaseGraph[VT,ET], quiet: bool=True, stats:Optional[Stats] = None) -> int:
     """Keeps doing the simplifications ``id_simp``, ``spider_simp`` until none of them can be applied anymore."""
     j = 0
     while True:
@@ -219,7 +218,7 @@ def full_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None
         if i+j == 0: 
             break
 
-def teleport_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None, store = False) -> BaseGraph[VT,ET]:
+def teleport_reduce(g: BaseGraph[VT,ET], store: bool = False) -> None:
     """This simplification procedure runs :func:`full_reduce` in a way
     that does not change the graph structure of the resulting diagram.
     The only thing that is different in the output graph are the location and value of the phases."""
@@ -230,11 +229,11 @@ def teleport_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=
 class PhaseTeleporter(Generic[VT, ET]):
     """Class used for :func:`teleport_reduce`."""
     def __init__(self, g: BaseGraph[VT,ET]) -> None:
-        self.original_graph = g.copy()
-        self.parent_vertex = {}
-        self.vertex_rank = {}
-        self.phase_mult = {}
-        self.non_clifford_vertices = set()
+        self.original_graph: BaseGraph[VT,ET] = g.copy()
+        self.parent_vertex: Dict[VT,VT] = {}
+        self.vertex_rank: Dict[VT,int] = {}
+        self.phase_mult: Dict[VT,int] = {}
+        self.non_clifford_vertices: Set[VT] = set()
         for v in self.original_graph.vertices():
             if self.original_graph.phase(v).denominator > 2:
                 self.parent_vertex[v] = v
@@ -242,13 +241,13 @@ class PhaseTeleporter(Generic[VT, ET]):
                 self.phase_mult[v] = 1
                 self.non_clifford_vertices.add(v)
     
-    def parent(self, v):
+    def parent(self, v: VT) -> VT:
         if self.parent_vertex[v] != v:
             self.parent_vertex[v] = self.parent(self.parent_vertex[v])
         return self.parent_vertex[v]
     
-    def get_vertex_groups(self):
-        vertex_groups = {}
+    def get_vertex_groups(self) -> List[List[VT]]:
+        vertex_groups: Dict[VT,List[VT]] = {}
         for v in self.non_clifford_vertices:
             root = self.parent(v)
             if root not in vertex_groups:
@@ -256,7 +255,7 @@ class PhaseTeleporter(Generic[VT, ET]):
             vertex_groups[root].append(v)
         return list(vertex_groups.values())
     
-    def fuse_phases(self, v1, v2):
+    def fuse_phases(self, v1: VT, v2: VT) -> None:
         if not all(v in self.non_clifford_vertices for v in (v1, v2)): return
         root_v1 = self.parent(v1)
         root_v2 = self.parent(v2)
@@ -268,44 +267,42 @@ class PhaseTeleporter(Generic[VT, ET]):
                 if self.vertex_rank[root_v1] == self.vertex_rank[root_v2]:
                     self.vertex_rank[root_v2] += 1
     
-    def phase_negate(self, v):
+    def phase_negate(self, v: VT) -> None:
         root = self.parent(v)
         for vert in self.non_clifford_vertices:
             if self.parent(vert) == root:
                 self.phase_mult[vert] *= -1
     
-    def init_simplify_graph(self, fusing_mode = True):
+    def init_simplify_graph(self, fusing_mode: bool = True) -> None:
         self.simplify_graph = self.original_graph.clone()
         self.simplify_graph.set_phase_teleporter(self, fusing_mode)
     
-    def teleport_phases(self, quiet:bool=True, stats:Optional[Stats]=None, store = False) -> None:
+    def teleport_phases(self, store:bool = False) -> None:
         self.init_simplify_graph()
-        full_reduce(self.simplify_graph,quiet=quiet, stats=stats)
+        full_reduce(self.simplify_graph)
         self.init_simplify_graph(fusing_mode = False)
         if not store: self.simplify_graph.place_tracked_phases()
 
 def selective_simp(
     g: BaseGraph[VT,ET],
-    get_matches: Callable[..., Dict[MatchObject,int]],
-    update_matches,
+    get_matches: Callable[..., Dict[MatchObject,float]],
+    update_matches: Callable[..., Dict[MatchObject,float]],
     rewrite: Callable[[BaseGraph[VT,ET],List[MatchObject]],RewriteOutputType[ET,VT]],
-    matchf: Optional[Union[Callable[[ET],bool], Callable[[VT],bool]]]=None,
-    condition: Optional[Callable[...,bool]]=lambda x: True,
+    matchf: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]]=None,
+    condition: Callable[...,bool] = lambda *a, **kw: True,
     max_num_rewrites:int = -1,
-    quiet: bool=True,
-    **kwargs) -> int:
+    **kwargs: Any) -> int:
     
     matches = get_matches(g, matchf, **kwargs)
     unchecked_matches = matches.copy()
     num_rewrites = 0
     while True:
         if len(unchecked_matches) == 0: break
-        m = max(unchecked_matches, key=unchecked_matches.get)
+        m = max(unchecked_matches, key=unchecked_matches.__getitem__)
         check_g = g.clone()
-        apply_rule(check_g, rewrite, m)
+        apply_rule(check_g, rewrite, [m])
         if condition(check_g, m):
             num_rewrites += 1
-            if not quiet and g.simplifier: print(f'{g}  ---   {m}    ---   {unchecked_matches[m]}                                                      ',end='\r')
             updated_matches = update_matches(g, check_g, matches, get_matches, matchf, **kwargs)
             g.replace(check_g)
             matches = updated_matches.copy()
@@ -313,31 +310,29 @@ def selective_simp(
             if num_rewrites == max_num_rewrites: break
             continue
         del unchecked_matches[m]
-    if not quiet: print()
     return num_rewrites
 
 def flow_2Q_simp(
-    g,
-    matchf = None,
-    cFlow = True,
-    rewrites = ['id_fuse','lcomp','pivot'],
-    score_params = [1,1,1],
-    max_lc_unfusions = 0,
-    max_p_unfusions = 0,
-    quiet = True):
+    g: BaseGraph[VT,ET],
+    matchf: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]] = None,
+    cFlow: bool = True,
+    rewrites: List[str] = ['id_fuse','lcomp','pivot'],
+    score_params: List[float] = [1,1,1],
+    max_lc_unfusions: int = 0,
+    max_p_unfusions: int = 0) -> int:
     assert(is_graph_like(g))
     g.vertices_to_update = []
-    if cFlow: flow_condition = lambda graph, match: True if match[2] else fast_flow(graph)
-    else: flow_condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True
-    return selective_simp(g, match_2Q_simp, update_2Q_simp_matches, rewrite_2Q_simp, matchf, flow_condition, quiet=quiet, rewrites=rewrites, score_params = score_params, max_lc_unfusions = max_lc_unfusions, max_p_unfusions = max_p_unfusions)
+    if cFlow: flow_condition = lambda graph, match: True if match[2] else cflow(graph) is not None
+    else: flow_condition = lambda graph, match: gflow(graph) is not None if match[0] and len(match[0][2])!=0 else gflow(graph) is not None if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True
+    return selective_simp(g, match_2Q_simp, update_2Q_simp_matches, rewrite_2Q_simp, matchf, flow_condition, rewrites=rewrites, score_params = score_params, max_lc_unfusions = max_lc_unfusions, max_p_unfusions = max_p_unfusions) #type:ignore
 
 def update_2Q_simp_matches(
     g_before: BaseGraph[VT,ET],
     g_after: BaseGraph[VT,ET],
-    current_matches: Dict[MatchObject,int],
-    get_matches: Callable[..., Dict[MatchObject,int]],
-    matchf = None,
-    **kwargs) -> Dict[MatchObject,int]:
+    current_matches: Dict[MatchUnfuseType,float],
+    get_matches: Callable[..., Dict[MatchUnfuseType,float]],
+    matchf: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]] = None,
+    **kwargs: Any) -> Dict[MatchUnfuseType,float]:
     
     verts_to_update = set()
     edges_to_update = set()
