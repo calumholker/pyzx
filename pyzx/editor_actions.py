@@ -29,9 +29,9 @@ from . import hrules
 
 def match_X_spiders(
         g: BaseGraph[VT, ET],
-        vertexf: Optional[Callable[[VT], bool]] = None
+        match_filter: Optional[Callable[[VT], bool]] = None
         ) -> List[VT]:
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     types = g.types()
 
@@ -40,9 +40,9 @@ def match_X_spiders(
 
 def match_Z_spiders(
         g: BaseGraph[VT, ET],
-        vertexf: Optional[Callable[[VT], bool]] = None
+        match_filter: Optional[Callable[[VT], bool]] = None
         ) -> List[VT]:
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     types = g.types()
 
@@ -60,9 +60,9 @@ def color_change(g: BaseGraph[VT,ET], matches: List[VT]) -> rules.RewriteOutputT
 
 def pauli_matcher(
         g: BaseGraph[VT,ET], 
-        vertexf: Optional[Callable[[VT],bool]] = None
+        match_filter: Optional[Callable[[VT],bool]] = None
         ) -> List[Tuple[VT,VT]]:
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     phases = g.phases()
     types = g.types()
@@ -142,18 +142,18 @@ def pauli_push(g: BaseGraph[VT,ET],
 
 def match_hadamard_edge(
         g: BaseGraph[VT,ET], 
-        edgef: Optional[Callable[[ET],bool]] = None
+        match_filter: Optional[Callable[[ET],bool]] = None
         ) -> List[ET]:
-    if edgef is not None: candidates = set([e for e in g.edges() if edgef(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     return [e for e in candidates if g.edge_type(e)==EdgeType.HADAMARD]
 
 
 def match_edge(
         g: BaseGraph[VT,ET], 
-        edgef: Optional[Callable[[ET],bool]] = None
+        match_filter: Optional[Callable[[ET],bool]] = None
         ) -> List[ET]:
-    if edgef is not None: candidates = set([e for e in g.edges() if edgef(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     return list(candidates)
 
@@ -221,9 +221,9 @@ def add_Z_identity(g: BaseGraph[VT,ET],
     return (etab, [], rem_edges, False)
 
 def match_bialgebra(g: BaseGraph[VT,ET], 
-        edgef: Optional[Callable[[ET],bool]] = None
+        match_filter: Optional[Callable[[ET],bool]] = None
         ) -> List[Tuple[VT,VT]]:
-    if edgef is not None: candidates = set([e for e in g.edges() if edgef(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     m = []
     types = g.types()
@@ -357,7 +357,7 @@ operations = {
                "type": MATCHES_VERTICES},
     "pivot": {"text": "pivot", 
                "tooltip": "Deletes a pair of spiders with 0/pi phases by performing a pivot",
-               "matcher": lambda g, matchf: rules.match_pivot_parallel(g, matchf, check_edge_types=True), 
+               "matcher": lambda g, match_filter: rules.match_pivot_parallel(g, match_filter, check_edge_types=True), 
                "rule": rules.pivot, 
                "type": MATCHES_EDGES}
 }

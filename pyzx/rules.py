@@ -81,20 +81,20 @@ def match_bialg(g: BaseGraph[VT,ET]) -> List[MatchBialgType[VT]]:
 #TODO: make it be hadamard edge aware
 def match_bialg_parallel(
         g: BaseGraph[VT,ET], 
-        matchf:Optional[Callable[[ET],bool]]=None, 
+        match_filter:Optional[Callable[[ET],bool]]=None, 
         num: int=-1
         ) -> List[MatchBialgType[VT]]:
     """Finds noninteracting matchings of the bialgebra rule.
     
     :param g: An instance of a ZX-graph.
-    :param matchf: An optional filtering function for candidate edge, should
+    :param match_filter: An optional filtering function for candidate edge, should
        return True if a edge should considered as a match. Passing None will
        consider all edges.
     :param num: Maximal amount of matchings to find. If -1 (the default)
        tries to find as many as possible.
     :rtype: List of 4-tuples ``(v1, v2, neighbors_of_v1,neighbors_of_v2)``
     """
-    if matchf is not None: candidates = set([e for e in g.edges() if matchf(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     phases = g.phases()
     types = g.types()
@@ -148,14 +148,14 @@ def match_spider(g: BaseGraph[VT,ET]) -> List[MatchSpiderType[VT]]:
 
 def match_spider_parallel(
         g: BaseGraph[VT,ET], 
-        matchf: Optional[Callable[[ET],bool]] = None, 
+        match_filter: Optional[Callable[[ET],bool]] = None, 
         num: int = -1,
         allow_interacting_matches: bool = False
         ) -> List[MatchSpiderType[VT]]:
     """Finds non-interacting matchings of the spider fusion rule.
     
     :param g: An instance of a ZX-graph.
-    :param matchf: An optional filtering function for candidate edge, should
+    :param match_filter: An optional filtering function for candidate edge, should
        return True if the edge should be considered for matchings. Passing None will
        consider all edges.
     :param num: Maximal amount of matchings to find. If -1 (the default)
@@ -164,7 +164,7 @@ def match_spider_parallel(
         hence can not all be applied at once
     :rtype: List of 2-tuples ``(v1, v2)``
     """
-    if matchf is not None: candidates = set([e for e in g.edges() if matchf(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     
     i = 0
@@ -254,7 +254,7 @@ def match_pivot(g: BaseGraph[VT,ET]) -> List[MatchPivotType[VT]]:
 
 def match_pivot_parallel(
         g: BaseGraph[VT,ET], 
-        matchf: Optional[Callable[[ET],bool]] = None, 
+        match_filter: Optional[Callable[[ET],bool]] = None, 
         num: int = -1, 
         check_edge_types: bool = True,
         allow_interacting_matches: bool = False
@@ -266,14 +266,14 @@ def match_pivot_parallel(
        tries to find as many as possible.
     :param check_edge_types: Whether the method has to check if all the edges involved
        are of the correct type (Hadamard edges).
-    :param matchf: An optional filtering function for candidate edge, should
+    :param match_filter: An optional filtering function for candidate edge, should
        return True if a edge should considered as a match. Passing None will
        consider all edges.
     :param allow_interacting_matches: Whether or not to allow matches which overlap,
         hence can not all be applied at once
     :rtype: List of 4-tuples. See :func:`pivot` for the details.
     """
-    if matchf is not None: candidates = set([e for e in g.edges() if matchf(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     
     i = 0
@@ -322,14 +322,14 @@ def match_pivot_parallel(
 
 def match_pivot_gadget(
         g: BaseGraph[VT,ET], 
-        matchf: Optional[Callable[[ET],bool]] = None, 
+        match_filter: Optional[Callable[[ET],bool]] = None, 
         num: int = -1,
         allow_interacting_matches: bool = False
         ) -> List[MatchPivotType[VT]]:
     """Like :func:`match_pivot_parallel`, but except for pairings of
     Pauli vertices, it looks for a pair of an interior Pauli vertex and an
     interior non-Clifford vertex in order to gadgetize the non-Clifford vertex."""
-    if matchf is not None: candidates = set([e for e in g.edges() if matchf(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     
     i = 0
@@ -376,14 +376,14 @@ def match_pivot_gadget(
 
 def match_pivot_boundary(
         g: BaseGraph[VT,ET], 
-        matchf: Optional[Callable[[VT],bool]] = None, 
+        match_filter: Optional[Callable[[VT],bool]] = None, 
         num: int=-1,
         allow_interacting_matches: bool = False
         ) -> List[MatchPivotType[VT]]:
     """Like :func:`match_pivot_parallel`, but except for pairings of
     Pauli vertices, it looks for a pair of an interior Pauli vertex and a
     boundary non-Pauli vertex in order to gadgetize the non-Pauli vertex."""
-    if matchf is not None: candidates = set([v for v in g.vertices() if matchf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     
     i = 0
@@ -529,7 +529,7 @@ def match_lcomp(g: BaseGraph[VT,ET]) -> List[MatchLcompType[VT]]:
 
 def match_lcomp_parallel(
         g: BaseGraph[VT,ET], 
-        vertexf: Optional[Callable[[VT],bool]] = None, 
+        match_filter: Optional[Callable[[VT],bool]] = None, 
         num: int = -1, 
         check_edge_types: bool = True,
         allow_interacting_matches: bool = False
@@ -541,14 +541,14 @@ def match_lcomp_parallel(
        tries to find as many as possible.
     :param check_edge_types: Whether the method has to check if all the edges involved
        are of the correct type (Hadamard edges).
-    :param vertexf: An optional filtering function for candidate vertices, should
+    :param match_filter: An optional filtering function for candidate vertices, should
        return True if a vertex should be considered as a match. Passing None will
        consider all vertices.
     :param allow_interacting_matches: Whether or not to allow matches which overlap,
         hence can not all be applied at once
     :rtype: List of 2-tuples ``(vertex, neighbors)``.
     """
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     
     i = 0
@@ -610,7 +610,7 @@ def match_ids(g: BaseGraph[VT,ET]) -> List[MatchIdType[VT]]:
 
 def match_ids_parallel(
         g: BaseGraph[VT,ET], 
-        vertexf: Optional[Callable[[VT],bool]] = None, 
+        match_filter: Optional[Callable[[VT],bool]] = None, 
         num: int = -1,
         allow_interacting_matches: bool = False
         ) -> List[MatchIdType[VT]]:
@@ -619,14 +619,14 @@ def match_ids_parallel(
     :param g: An instance of a ZX-graph.
     :param num: Maximal amount of matchings to find. If -1 (the default)
        tries to find as many as possible.
-    :param vertexf: An optional filtering function for candidate vertices, should
+    :param match_filter: An optional filtering function for candidate vertices, should
        return True if a vertex should be considered as a match. Passing None will
        consider all vertices.
     :param allow_interacting_matches: Whether or not to allow matches which overlap,
         hence can not all be applied at once
     :rtype: List of 4-tuples ``(identity_vertex, neighbor1, neighbor2, edge_type)``.
     """
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
 
     i = 0
@@ -811,12 +811,12 @@ MatchCopyType = Tuple[VT,VT,FractionLike,FractionLike,List[VT]]
 
 def match_copy(
     g: BaseGraph[VT,ET], 
-    vertexf:Optional[Callable[[VT],bool]]=None
+    match_filter:Optional[Callable[[VT],bool]]=None
     ) -> List[MatchCopyType[VT]]:
     """Finds spiders with a 0 or pi phase that have a single neighbor,
     and copies them through. Assumes that all the spiders are green and maximally fused."""
-    if vertexf is not None:
-        candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None:
+        candidates = set([v for v in g.vertices() if match_filter(v)])
     else:
         candidates = g.vertex_set()
     phases = g.phases()
@@ -966,12 +966,12 @@ def apply_gadget_phasepoly(g: BaseGraph[VT,ET], matches: List[MatchPhasePolyType
 
 def match_id_fuse(
         g: BaseGraph[VT,ET], 
-        vertexf: Optional[Callable[[VT],bool]] = None, 
+        match_filter: Optional[Callable[[VT],bool]] = None, 
         num: int = -1,
         allow_interacting_matches: bool = False
         ) -> List[MatchIdFuseType[VT]]:
     
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     
     i = 0
@@ -1063,12 +1063,12 @@ def split_phases(original_phase: FractionLike, desired_phase: FractionLike) -> F
 def match_lcomp_unfuse(
         g: BaseGraph[VT,ET], 
         heuristic: Callable[...,int],
-        vertexf:Optional[Callable[[VT],bool]] = None, 
+        match_filter:Optional[Callable[[VT],bool]] = None, 
         num: int = -1,
         allow_interacting_matches: bool = False,
         max_unfusions: int = 0,
         **kwargs: Any) -> Dict[MatchLcompUnfuseType,float]:
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     
     i = 0
@@ -1136,13 +1136,13 @@ def lcomp_unfuse(g: BaseGraph[VT,ET], matches: List[MatchLcompUnfuseType[VT]]) -
 def match_pivot_unfuse(
         g: BaseGraph[VT,ET], 
         heuristic: Callable[...,Optional[float]],
-        matchf: Optional[Callable[[ET],bool]] = None, 
+        match_filter: Optional[Callable[[ET],bool]] = None, 
         num: int = -1,
         check_edge_types: bool = True,
         allow_interacting_matches: bool = False,
         max_unfusions = 0,
         **kwargs) -> Dict[MatchPivotUnfuseType[VT],float]:
-    if matchf is not None: candidates = set([e for e in g.edges() if matchf(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     
     i = 0
@@ -1257,11 +1257,11 @@ def pivot_unfuse(g: BaseGraph[VT,ET], matches: List[MatchPivotUnfuseType[VT]]) -
 
 MatchUnfuseType = Union[Tuple[MatchLcompUnfuseType, None, None],Tuple[None, MatchPivotUnfuseType, None], Tuple[None,None,MatchIdFuseType]]
 
-def match_2Q_simp(g: BaseGraph[VT,ET], matchf: Optional[Callable[[Union[VT,ET]],bool]] = None, rewrites: List[str] = ['id_fuse','lcomp','pivot'], score_params: List[float] = [1,1,1], max_lc_unfusions: int = 0, max_p_unfusions: int = 0) -> Dict[MatchUnfuseType,float]:
+def match_2Q_simp(g: BaseGraph[VT,ET], match_filter: Optional[Callable[[Union[VT,ET]],bool]] = None, rewrites: List[str] = ['id_fuse','lcomp','pivot'], score_params: List[float] = [1,1,1], max_lc_unfusions: int = 0, max_p_unfusions: int = 0) -> Dict[MatchUnfuseType,float]:
     m: Dict[MatchUnfuseType, float] = dict()
-    if 'lcomp' in rewrites: m.update({(match,None,None):v for match,v in match_lcomp_unfuse(g,lcomp_2Q_simp_heuristic, matchf, allow_interacting_matches=True, max_unfusions=max_lc_unfusions, score_params = score_params).items()})
-    if 'pivot' in rewrites: m.update({(None,match,None):v for match,v in match_pivot_unfuse(g,pivot_2Q_simp_heuristic,matchf,allow_interacting_matches=True,max_unfusions=max_p_unfusions,score_params = score_params).items()})
-    if 'id_fuse' in rewrites: m.update({(None,None,match):id_fuse_2Q_reduce_heuristic(g,match,score_params) for match in match_id_fuse(g,matchf,allow_interacting_matches=True)})
+    if 'lcomp' in rewrites: m.update({(match,None,None):v for match,v in match_lcomp_unfuse(g,lcomp_2Q_simp_heuristic, match_filter, allow_interacting_matches=True, max_unfusions=max_lc_unfusions, score_params = score_params).items()})
+    if 'pivot' in rewrites: m.update({(None,match,None):v for match,v in match_pivot_unfuse(g,pivot_2Q_simp_heuristic,match_filter,allow_interacting_matches=True,max_unfusions=max_p_unfusions,score_params = score_params).items()})
+    if 'id_fuse' in rewrites: m.update({(None,None,match):id_fuse_2Q_reduce_heuristic(g,match,score_params) for match in match_id_fuse(g,match_filter,allow_interacting_matches=True)})
     return m
 
 def rewrite_2Q_simp(g: BaseGraph[VT,ET], match: List[MatchUnfuseType]) -> RewriteOutputType[ET,VT]:

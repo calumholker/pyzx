@@ -57,13 +57,13 @@ def simp(
     name: str,
     match: Callable[..., List[MatchObject]],
     rewrite: Callable[[BaseGraph[VT,ET],List[MatchObject]], RewriteOutputType[ET,VT]],
-    matchf: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]]=None,
+    match_filter: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]]=None,
     max_num_rewrites: Optional[int] = None,
     quiet:bool=False,
     stats:Optional[Stats]=None) -> int:
     """Helper method for constructing simplification strategies based on the rules present in rules_.
     It uses the ``match`` function to find matches, and then rewrites ``g`` using ``rewrite``.
-    If ``matchf`` is supplied, only the vertices or edges for which matchf() returns True are considered for matches.
+    If ``match_filter`` is supplied, only the vertices or edges for which match_filter() returns True are considered for matches.
 
     Example:
         ``simp(g, 'spider_simp', rules.match_spider_parallel, rules.spider)``
@@ -73,7 +73,7 @@ def simp(
         str name: The name to display if ``quiet`` is set to False.
         match: One of the ``match_*`` functions of rules_.
         rewrite: One of the rewrite functions of rules_.
-        matchf: An optional filtering function on candidate vertices or edges, which
+        match_filter: An optional filtering function on candidate vertices or edges, which
            is passed as the second argument to the match function.
         condition: An optional filtering function on the graph produced by individual rewrite rules (e.g. edges created < edges removed)
         quiet: Suppress output on numbers of matches found during simplification.
@@ -85,8 +85,8 @@ def simp(
     num_rewrites = 0
     total_rewrites = 0
     while True:
-        if matchf and max_num_rewrites: matches = match(g, matchf, num = -1 if max_num_rewrites == -1 else max_num_rewrites-total_rewrites)
-        elif matchf: matches = match(g, matchf)
+        if match_filter and max_num_rewrites: matches = match(g, match_filter, num = -1 if max_num_rewrites == -1 else max_num_rewrites-total_rewrites)
+        elif match_filter: matches = match(g, match_filter)
         elif max_num_rewrites: matches = match(g, num = -1 if max_num_rewrites == -1 else max_num_rewrites-total_rewrites)
         else: matches = match(g)
         
@@ -105,29 +105,29 @@ def simp(
     if not quiet and num_iterations>0: print(f' {num_iterations} iterations')
     return num_iterations
 
-def pivot_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'pivot_simp', match_pivot_parallel, pivot, matchf=matchf, quiet=quiet, stats=stats)
+def pivot_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'pivot_simp', match_pivot_parallel, pivot, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def pivot_gadget_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'pivot_gadget_simp', match_pivot_gadget, pivot_gadget, matchf=matchf, quiet=quiet, stats=stats)
+def pivot_gadget_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'pivot_gadget_simp', match_pivot_gadget, pivot_gadget, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def pivot_boundary_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'pivot_boundary_simp', match_pivot_boundary, pivot_gadget, matchf=matchf, quiet=quiet, stats=stats)
+def pivot_boundary_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'pivot_boundary_simp', match_pivot_boundary, pivot_gadget, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def lcomp_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'lcomp_simp', match_lcomp_parallel, lcomp, matchf=matchf, quiet=quiet, stats=stats)
+def lcomp_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'lcomp_simp', match_lcomp_parallel, lcomp, match_filter=match_filter, quiet=quiet, stats=stats)
 
 def bialg_simp(g: BaseGraph[VT,ET], quiet:bool=False, stats: Optional[Stats]=None) -> int:
     return simp(g, 'bialg_simp', match_bialg_parallel, bialg, quiet=quiet, stats=stats)
 
-def spider_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'spider_simp', match_spider_parallel, spider, matchf=matchf, quiet=quiet, stats=stats)
+def spider_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'spider_simp', match_spider_parallel, spider, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def id_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'id_simp', match_ids_parallel, remove_ids, matchf=matchf, quiet=quiet, stats=stats)
+def id_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'id_simp', match_ids_parallel, remove_ids, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def id_fuse_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'id_fuse', match_id_fuse, id_fuse, matchf=matchf, quiet=quiet, stats=stats)
+def id_fuse_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'id_fuse', match_id_fuse, id_fuse, match_filter=match_filter, quiet=quiet, stats=stats)
 
 def gadget_simp(g: BaseGraph[VT,ET], quiet:bool=False, stats:Optional[Stats]=None) -> int:
     return simp(g, 'gadget_simp', match_phase_gadgets, merge_phase_gadgets, quiet=quiet, stats=stats)
@@ -288,12 +288,12 @@ def selective_simp(
     get_matches: Callable[..., Dict[MatchObject,float]],
     update_matches: Callable[..., Dict[MatchObject,float]],
     rewrite: Callable[[BaseGraph[VT,ET],List[MatchObject]],RewriteOutputType[ET,VT]],
-    matchf: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]]=None,
+    match_filter: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]]=None,
     condition: Callable[...,bool] = lambda *a, **kw: True,
     max_num_rewrites:int = -1,
     **kwargs: Any) -> int:
     
-    matches = get_matches(g, matchf, **kwargs)
+    matches = get_matches(g, match_filter, **kwargs)
     unchecked_matches = matches.copy()
     num_rewrites = 0
     while True:
@@ -303,7 +303,7 @@ def selective_simp(
         apply_rule(check_g, rewrite, [m])
         if condition(check_g, m):
             num_rewrites += 1
-            updated_matches = update_matches(g, check_g, matches, get_matches, matchf, **kwargs)
+            updated_matches = update_matches(g, check_g, matches, get_matches, match_filter, **kwargs)
             g.replace(check_g)
             matches = updated_matches.copy()
             unchecked_matches = matches.copy()
@@ -314,7 +314,7 @@ def selective_simp(
 
 def flow_2Q_simp(
     g: BaseGraph[VT,ET],
-    matchf: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]] = None,
+    match_filter: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]] = None,
     cFlow: bool = True,
     rewrites: List[str] = ['id_fuse','lcomp','pivot'],
     score_params: List[float] = [1,1,1],
@@ -324,14 +324,14 @@ def flow_2Q_simp(
     g.vertices_to_update = []
     if cFlow: flow_condition = lambda graph, match: True if match[2] else cflow(graph) is not None
     else: flow_condition = lambda graph, match: gflow(graph) is not None if match[0] and len(match[0][2])!=0 else gflow(graph) is not None if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True
-    return selective_simp(g, match_2Q_simp, update_2Q_simp_matches, rewrite_2Q_simp, matchf, flow_condition, rewrites=rewrites, score_params = score_params, max_lc_unfusions = max_lc_unfusions, max_p_unfusions = max_p_unfusions) #type:ignore
+    return selective_simp(g, match_2Q_simp, update_2Q_simp_matches, rewrite_2Q_simp, match_filter, flow_condition, rewrites=rewrites, score_params = score_params, max_lc_unfusions = max_lc_unfusions, max_p_unfusions = max_p_unfusions) #type:ignore
 
 def update_2Q_simp_matches(
     g_before: BaseGraph[VT,ET],
     g_after: BaseGraph[VT,ET],
     current_matches: Dict[MatchUnfuseType,float],
     get_matches: Callable[..., Dict[MatchUnfuseType,float]],
-    matchf: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]] = None,
+    match_filter: Union[Optional[Callable[[VT],bool]],Optional[Callable[[ET],bool]]] = None,
     **kwargs: Any) -> Dict[MatchUnfuseType,float]:
     
     verts_to_update = set()
@@ -350,7 +350,7 @@ def update_2Q_simp_matches(
             if g_after.connected(v1,v2): edges_to_update.add(g_after.edge(v1,v2))
     
     matches_to_update = verts_to_update.union(edges_to_update)
-    if matchf: update_m = lambda y: y in matches_to_update and matchf(y)
+    if match_filter: update_m = lambda y: y in matches_to_update and match_filter(y)
     else: update_m = lambda y: y in matches_to_update
     new_matches = get_matches(g_after, update_m, **kwargs)
     

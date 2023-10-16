@@ -24,10 +24,10 @@ from . import rules
 
 
 def match_hadamards(g: BaseGraph[VT,ET],
-        vertexf: Optional[Callable[[VT],bool]] = None
+        match_filter: Optional[Callable[[VT],bool]] = None
         ) -> List[VT]:
     """Matches all the H-boxes with arity 2 and phase 1, i.e. all the Hadamard gates."""
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     m : Set[VT] = set()
     ty = g.types()
@@ -60,11 +60,11 @@ def hadamard_to_h_edge(g: BaseGraph[VT,ET], matches: List[VT]) -> rules.RewriteO
     return (etab, rem_verts, [], True)
 
 def match_connected_hboxes(g: BaseGraph[VT,ET],
-        edgef: Optional[Callable[[ET],bool]] = None
+        match_filter: Optional[Callable[[ET],bool]] = None
         ) -> List[ET]:
     """Matches Hadamard-edges that are connected to H-boxes, as these can be fused,
     see the rule (HS1) of https://arxiv.org/pdf/1805.02175.pdf."""
-    if edgef is not None: candidates = set([e for e in g.edges() if edgef(e)])
+    if match_filter is not None: candidates = set([e for e in g.edges() if match_filter(e)])
     else: candidates = g.edge_set()
     m : Set[ET] = set()
     ty = g.types()
@@ -106,10 +106,10 @@ MatchCopyType = Tuple[VT,VT,VertexType.Type,FractionLike,FractionLike,List[VT]]
 
 def match_copy(
         g: BaseGraph[VT,ET], 
-        vertexf:Optional[Callable[[VT],bool]]=None
+        match_filter:Optional[Callable[[VT],bool]]=None
         ) -> List[MatchCopyType[VT]]:
     """Finds arity-1 spiders (with a 0 or pi phase) that can be copied through their neighbor.""" 
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     phases = g.phases()
     types = g.types()
@@ -218,10 +218,10 @@ def is_NOT_gate(g, v, n1, n2):
 
 def match_hbox_parallel_not(
         g: BaseGraph[VT,ET], 
-        vertexf:Optional[Callable[[VT],bool]]=None
+        match_filter:Optional[Callable[[VT],bool]]=None
         ) -> List[Tuple[VT,VT,VT]]:
     """Finds H-boxes that are connected to a Z-spider both directly and via a NOT.""" 
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     phases = g.phases()
     types = g.types()
@@ -272,11 +272,11 @@ def hbox_parallel_not_remove(g: BaseGraph[VT,ET],
 TYPE_MATCH_PAR_HBOX = Tuple[List[VT],List[VT],List[VT]]
 def match_par_hbox(
     g: BaseGraph[VT,ET],
-    vertexf: Optional[Callable[[VT],bool]] = None
+    match_filter: Optional[Callable[[VT],bool]] = None
     ) -> List[TYPE_MATCH_PAR_HBOX]:
     """Matches sets of H-boxes that are connected in parallel (via optional NOT gates)
     to the same white spiders."""
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     
     groupings: Dict[Tuple[FrozenSet[VT],FrozenSet[VT]], Tuple[List[VT],List[VT],List[VT]]] = dict()
@@ -346,11 +346,11 @@ def par_hbox(g: BaseGraph[VT,ET], matches: List[TYPE_MATCH_PAR_HBOX]) -> rules.R
 TYPE_MATCH_PAR_HBOX_INTRO = Tuple[VT,VT,VT,List[VT],Set[VT]]
 def match_par_hbox_intro(
     g: BaseGraph[VT,ET],
-    vertexf: Optional[Callable[[VT],bool]] = None
+    match_filter: Optional[Callable[[VT],bool]] = None
     ) -> List[TYPE_MATCH_PAR_HBOX_INTRO]:
     """Matches sets of H-boxes that are connected in parallel (via optional NOT gates)
     to the same white spiders, but with just one NOT different, so that the Intro rule can be applied there."""
-    if vertexf is not None: candidates = set([v for v in g.vertices() if vertexf(v)])
+    if match_filter is not None: candidates = set([v for v in g.vertices() if match_filter(v)])
     else: candidates = g.vertex_set()
     
     groupings: Dict[FrozenSet[VT], List[Tuple[VT,List[VT],Set[VT],Set[VT],Set[VT]]]] = dict()
@@ -453,13 +453,13 @@ hpivot_match_output = List[Tuple[
             ]]
 
 def match_hpivot(
-    g: BaseGraph[VT,ET], matchf=None
+    g: BaseGraph[VT,ET], match_filter=None
     ) -> hpivot_match_output:
     """Finds a matching of the hyper-pivot rule. Note this currently assumes
     hboxes don't have phases.
 
     :param g: An instance of a ZH-graph.
-    :param matchf: An optional filtering function for candidate arity-2 hbox, should
+    :param match_filter: An optional filtering function for candidate arity-2 hbox, should
        return True if an hbox should considered as a match. Passing None will
        consider all arity-2 hboxes.
     :rtype: List containing 0 or 1 matches.
@@ -473,7 +473,7 @@ def match_hpivot(
 
     for h in g.vertices():
         if not (
-            (matchf is None or matchf(h)) and
+            (match_filter is None or match_filter(h)) and
             g.vertex_degree(h) == 2 and
             types[h] == VertexType.H_BOX and
             phases[h] == 1

@@ -24,14 +24,14 @@ from .hrules import *
 from .rules import MatchObject
 
 
-def hadamard_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False) -> int:
+def hadamard_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False) -> int:
     """Converts as many Hadamards represented by H-boxes to Hadamard-edges."""
     # We can't use the regular simp function, because removing H-nodes could lead to an infinite loop,
     # since sometimes g.add_edge_table() decides that we can't change an H-box into an H-edge.
     i = 0
     while True:
         vcount = g.num_vertices()
-        m = match_hadamards(g, matchf)
+        m = match_hadamards(g, match_filter)
         if len(m) == 0: break
         i += 1
         if i == 1 and not quiet: print("hadamard_simp: ",end='')
@@ -124,20 +124,20 @@ def from_hypergraph_form(g: BaseGraph[VT,ET]) -> None:
     hadamard_simp(g,quiet=True)
 
 
-def par_hbox_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'par_hbox_simp', match_par_hbox, par_hbox, matchf=matchf, quiet=quiet, stats=stats)
+def par_hbox_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'par_hbox_simp', match_par_hbox, par_hbox, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def par_hbox_intro_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'par_hbox_intro_simp', match_par_hbox_intro, par_hbox_intro, matchf=matchf, quiet=quiet, stats=stats)
+def par_hbox_intro_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'par_hbox_intro_simp', match_par_hbox_intro, par_hbox_intro, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def copy_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'copy_simp', match_copy, apply_copy, matchf=matchf, quiet=quiet, stats=stats)
+def copy_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'copy_simp', match_copy, apply_copy, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def hspider_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'hspider_simp', match_connected_hboxes, fuse_hboxes, matchf=matchf, quiet=quiet, stats=stats)
+def hspider_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[ET],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'hspider_simp', match_connected_hboxes, fuse_hboxes, match_filter=match_filter, quiet=quiet, stats=stats)
 
-def hbox_parallel_not_remove_simp(g: BaseGraph[VT,ET], matchf:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
-    return simp(g, 'hbox_parallel_not_remove_simp', match_hbox_parallel_not, hbox_parallel_not_remove, matchf=matchf, quiet=quiet, stats=stats)
+def hbox_parallel_not_remove_simp(g: BaseGraph[VT,ET], match_filter:Optional[Callable[[VT],bool]]=None, quiet:bool=False, stats:Optional[Stats]=None) -> int:
+    return simp(g, 'hbox_parallel_not_remove_simp', match_hbox_parallel_not, hbox_parallel_not_remove, match_filter=match_filter, quiet=quiet, stats=stats)
 
 
 # a stripped-down version of "simp", since hrules don't return edge tables etc
