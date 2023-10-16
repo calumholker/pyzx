@@ -78,9 +78,9 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
     def __init__(self) -> None:
         self.scalar: Scalar = Scalar()
         
-        # simplifier for circuit simplifications
-        self.simplifier = None
-        self.teleport_mode = False
+        # phase_tracker for circuit simplifications
+        self.phase_tracking = False
+        self.phase_teleporter = None
         self.parent_vertex = {}
         self.vertex_groups = {}
         self.group_data = {}
@@ -779,19 +779,20 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         """Like add_edge, but does the right thing if there is an existing edge."""
         self.add_edge_table({e : [1,0] if edgetype == EdgeType.SIMPLE else [0,1]})
 
-    def set_simplifier(self, simp: 'simplify.Simplifier', teleport_mode) -> None:
+    def set_phase_teleporter(self, teleporter: 'simplify.PhaseTeleporter', fusing_mode = True) -> None:
         """Points towards an instance of the class :class:`~pyzx.simplify.Simplifier`.
         Used for phase teleportation."""
-        self.simplifier = simp
-        self.teleport_mode = teleport_mode
-        if self.teleport_mode: return
-        for group_num, group in enumerate(simp.get_vertex_groups()):
+        self.phase_tracking = True
+        if fusing_mode:
+            self.phase_teleporter = teleporter
+            return
+        for group_num, group in enumerate(teleporter.get_vertex_groups()):
             if len(group) == 1: continue
             self.group_data[group_num] = set(group)
             phase_sum = 0
             for v in group:
                 self.vertex_groups[v] = group_num
-                mult = simp.phase_mult[v]
+                mult = teleporter.phase_mult[v]
                 self.phase_mult[v] = mult
                 phase_sum += self.phase(v) * mult
                 self.sign_change[v] = 1
@@ -809,42 +810,40 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
     
     def phase_negate(self, v):
         root_v = self.root_vertex(v)
-        if not self.teleport_mode:
-            if root_v in self.vertex_groups: self.sign_change[root_v] *= -1
+        if self.phase_teleporter:
+            if root_v not in self.phase_teleporter.non_clifford_vertices: return
+            self.phase_teleporter.phase_negate(root_v)
             return
-        if root_v not in self.simplifier.non_clifford_vertices: return
-        self.simplifier.phase_negate(root_v)
-    
-    def update_group(self, group):
-        if len(self.group_data[group]) == 1:
-            v = next(iter(self.group_data[group]))
-            phase = self.phase_sum[group] * self.phase_mult[v] * self.sign_change[v]
-            child_v = self.leaf_vertex(v)
-            self.add_to_phase(child_v, phase)
-            del self.vertex_groups[v]
-            del self.phase_mult[v]
-            del self.sign_change[v]
-            del self.phase_sum[group]
-            del self.group_data[group]
-            self.vertices_to_update.append(child_v)
-        elif len(self.group_data[group]) == 2:
-            self.vertices_to_update.extend([self.leaf_vertex(u) for u in self.group_data[group]])
+        if root_v in self.vertex_groups: self.sign_change[root_v] *= -1
     
     def remove_vertex_from_group(self, v, group):
         del self.vertex_groups[v]
         del self.phase_mult[v]
         del self.sign_change[v]
         self.group_data[group].remove(v)
-        self.update_group(group)
+        if len(self.group_data[group]) == 1:
+            u = next(iter(self.group_data[group]))
+            phase = self.phase_sum[group] * self.phase_mult[u] * self.sign_change[u]
+            child_u = self.leaf_vertex(u)
+            self.add_to_phase(child_u, phase)
+            del self.vertex_groups[u]
+            del self.phase_mult[u]
+            del self.sign_change[u]
+            del self.phase_sum[group]
+            del self.group_data[group]
+            self.vertices_to_update.append(child_u)
+            if len(self.group_data) == 0: self.phase_tracking = False
+        elif len(self.group_data[group]) == 2:
+            self.vertices_to_update.extend([self.leaf_vertex(u) for u in self.group_data[group]])
     
     def fuse_phases(self,v1,v2):
         root_v1 = self.root_vertex(v1)
         root_v2 = self.root_vertex(v2)
         
-        if self.teleport_mode:
-            if root_v2 in self.simplifier.non_clifford_vertices:
-                if root_v1 in self.simplifier.non_clifford_vertices:
-                    self.simplifier.fuse_phases(root_v1,root_v2)
+        if self.phase_teleporter:
+            if root_v2 in self.phase_teleporter.non_clifford_vertices:
+                if root_v1 in self.phase_teleporter.non_clifford_vertices:
+                    self.phase_teleporter.fuse_phases(root_v1,root_v2)
                 else: self.parent_vertex[v1] = v2
             return
         
@@ -876,7 +875,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.set_phase(v, target_phase)
         self.remove_vertex_from_group(root_v, group)
     
-    def place_stored_phases(self):
+    def place_tracked_phases(self):
         for group, vertices in self.group_data.items():
             v = list(vertices)[0]
             phase = self.phase_sum[group] * self.phase_mult[v] * self.sign_change[v]
@@ -887,13 +886,14 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.phase_sum = {}
         self.phase_mult = {}
         self.sign_change = {}
+        self.phase_tracking = False
     
     def unfuse_vertex(self, new_vertex, old_vertex):
-        if not self.teleport_mode:
-            if self.root_vertex(old_vertex) in self.vertex_groups: 
+        if self.phase_teleporter:
+            if self.root_vertex(old_vertex) in self.phase_teleporter.non_clifford_vertices:
                 self.parent_vertex[new_vertex] = old_vertex
             return
-        if self.root_vertex(old_vertex) in self.simplifier.non_clifford_vertices:
+        if self.root_vertex(old_vertex) in self.vertex_groups: 
             self.parent_vertex[new_vertex] = old_vertex
     
     def check_phase(self, v, phase):
@@ -954,8 +954,8 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.scalar = g.scalar.copy()
         self._inputs = tuple(list(g._inputs))
         self._outputs = tuple(list(g._outputs))
-        self.simplifier = g.simplifier
-        self.teleport_mode = g.teleport_mode
+        self.phase_teleporter = g.phase_teleporter
+        self.phase_tracking = g.phase_tracking
         self.parent_vertex = g.parent_vertex.copy()
         self.vertex_groups = g.vertex_groups.copy()
         self.group_data = {group: set(vertices) for group, vertices in g.group_data.items()}

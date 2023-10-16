@@ -60,8 +60,8 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         cpy.scalar = self.scalar.copy()
         cpy._inputs = tuple(list(self._inputs))
         cpy._outputs = tuple(list(self._outputs))
-        cpy.simplifier = self.simplifier
-        cpy.teleport_mode = self.teleport_mode
+        cpy.phase_teleporter = self.phase_teleporter
+        cpy.phase_tracking = self.phase_tracking
         cpy.parent_vertex = self.parent_vertex.copy()
         cpy.vertex_groups = self.vertex_groups.copy()
         cpy.group_data = {group: set(vertices) for group, vertices in self.group_data.items()}

@@ -219,27 +219,15 @@ def full_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None
         if i+j == 0: 
             break
 
-def teleport_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None) -> BaseGraph[VT,ET]:
+def teleport_reduce(g: BaseGraph[VT,ET], quiet:bool=True, stats:Optional[Stats]=None, store = False) -> BaseGraph[VT,ET]:
     """This simplification procedure runs :func:`full_reduce` in a way
     that does not change the graph structure of the resulting diagram.
     The only thing that is different in the output graph are the location and value of the phases."""
-    s = Simplifier(g)
-    s.teleport_phases(store = False)
-    return s.simplify_graph
+    s = PhaseTeleporter(g)
+    s.teleport_phases(store = store)
+    g.replace(s.simplify_graph)
 
-def interior_2Q_reduce(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True) -> BaseGraph[VT,ET]:
-    to_gh(g)
-    s = Simplifier(g)
-    g2 = s.int_2Q_reduce(x, flow=flow, quiet=quiet)
-    return g2
-
-def flow_2Q_reduce(g: BaseGraph[VT,ET], x=None, flow='causal', quiet:bool=True):
-    to_gh(g)
-    s = Simplifier(g)
-    g2 = s.unfuse_2Q_reduce(x, flow=flow, quiet=quiet)
-    return g2
-
-class Simplifier(Generic[VT, ET]):
+class PhaseTeleporter(Generic[VT, ET]):
     """Class used for :func:`teleport_reduce`."""
     def __init__(self, g: BaseGraph[VT,ET]) -> None:
         self.original_graph = g.copy()
@@ -286,50 +274,28 @@ class Simplifier(Generic[VT, ET]):
             if self.parent(vert) == root:
                 self.phase_mult[vert] *= -1
     
-    def init_simplify_graph(self, teleport_mode = True):
+    def init_simplify_graph(self, fusing_mode = True):
         self.simplify_graph = self.original_graph.clone()
-        self.simplify_graph.set_simplifier(self, teleport_mode)
+        self.simplify_graph.set_phase_teleporter(self, fusing_mode)
     
-    def teleport_phases(self, quiet:bool=True, stats:Optional[Stats]=None, store = True) -> None:
+    def teleport_phases(self, quiet:bool=True, stats:Optional[Stats]=None, store = False) -> None:
         self.init_simplify_graph()
         full_reduce(self.simplify_graph,quiet=quiet, stats=stats)
-        if not store:
-            self.init_simplify_graph(teleport_mode=False)
-            self.simplify_graph.place_stored_phases()
-    
-    def int_2Q_reduce(self, x, flow='causal', quiet=True, stats=None):
-        self.teleport_phases()
-        self.init_simplify_graph(teleport_mode = False)
-        spider_simp(self.simplify_graph,quiet = True)
-        self.simplify_graph.vertices_to_update = []
-        self.simplify_graph.place_stored_phases()
-        if flow != 'causal': int_cliff_flow_simp(self.simplify_graph, condition = lambda graph, match: True, quiet=quiet)
-        else: int_cliff_flow_simp(self.simplify_graph , quiet=quiet)
-        return self.simplify_graph
-    
-    def unfuse_2Q_reduce(self, x, flow='causal', quiet=True, stats=None):
-        self.teleport_phases()
-        self.init_simplify_graph(teleport_mode = False)
-        spider_simp(self.simplify_graph, quiet = True)
-        self.simplify_graph.vertices_to_update = []
-        self.simplify_graph.place_stored_phases()
-        if flow != 'causal': twoQ_reduce_simp(self.simplify_graph, x, condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True, quiet=quiet)
-        else: twoQ_reduce_simp(self.simplify_graph, x ,quiet=quiet)
-        # self.simplify_graph.place_stored_phases()
-        return self.simplify_graph
+        self.init_simplify_graph(fusing_mode = False)
+        if not store: self.simplify_graph.place_tracked_phases()
 
 def selective_simp(
     g: BaseGraph[VT,ET],
-    x,
     get_matches: Callable[..., Dict[MatchObject,int]],
     update_matches,
     rewrite: Callable[[BaseGraph[VT,ET],List[MatchObject]],RewriteOutputType[ET,VT]],
     matchf: Optional[Union[Callable[[ET],bool], Callable[[VT],bool]]]=None,
     condition: Optional[Callable[...,bool]]=lambda x: True,
     max_num_rewrites:int = -1,
-    quiet: bool=False) -> int:
+    quiet: bool=True,
+    **kwargs) -> int:
     
-    matches = get_matches(g, x, matchf)
+    matches = get_matches(g, matchf, **kwargs)
     unchecked_matches = matches.copy()
     num_rewrites = 0
     while True:
@@ -340,7 +306,7 @@ def selective_simp(
         if condition(check_g, m):
             num_rewrites += 1
             if not quiet and g.simplifier: print(f'{g}  ---   {m}    ---   {unchecked_matches[m]}                                                      ',end='\r')
-            updated_matches = update_matches(check_g, g, x, get_matches, matches, matchf)
+            updated_matches = update_matches(g, check_g, matches, get_matches, matchf, **kwargs)
             g.replace(check_g)
             matches = updated_matches.copy()
             unchecked_matches = matches.copy()
@@ -350,14 +316,28 @@ def selective_simp(
     if not quiet: print()
     return num_rewrites
 
-def update_2Q_reduce_matches(
-    g_after: BaseGraph[VT,ET],
+def flow_2Q_simp(
+    g,
+    matchf = None,
+    cFlow = True,
+    rewrites = ['id_fuse','lcomp','pivot'],
+    score_params = [1,1,1],
+    max_lc_unfusions = 0,
+    max_p_unfusions = 0,
+    quiet = True):
+    assert(is_graph_like(g))
+    g.vertices_to_update = []
+    if cFlow: flow_condition = lambda graph, match: True if match[2] else fast_flow(graph)
+    else: flow_condition = lambda graph, match: gflow(graph) if match[0] and len(match[0][2])!=0 else gflow(graph) if match[1] and (len(match[1][4][0]) != 0 or len(match[1][4][1]) != 0) else True
+    return selective_simp(g, match_2Q_simp, update_2Q_simp_matches, rewrite_2Q_simp, matchf, flow_condition, quiet=quiet, rewrites=rewrites, score_params = score_params, max_lc_unfusions = max_lc_unfusions, max_p_unfusions = max_p_unfusions)
+
+def update_2Q_simp_matches(
     g_before: BaseGraph[VT,ET],
-    x,
-    get_matches: Callable[..., Dict[MatchObject,int]],
+    g_after: BaseGraph[VT,ET],
     current_matches: Dict[MatchObject,int],
-    matchf = None
-    ) -> Dict[MatchObject,int]:
+    get_matches: Callable[..., Dict[MatchObject,int]],
+    matchf = None,
+    **kwargs) -> Dict[MatchObject,int]:
     
     verts_to_update = set()
     edges_to_update = set()
@@ -377,17 +357,22 @@ def update_2Q_reduce_matches(
     matches_to_update = verts_to_update.union(edges_to_update)
     if matchf: update_m = lambda y: y in matches_to_update and matchf(y)
     else: update_m = lambda y: y in matches_to_update
-    new_matches = get_matches(g_after, x, update_m)
-    updated_matches = remove_updated_2Q_reduce_matches(current_matches,removed_vertices,verts_to_update)
+    new_matches = get_matches(g_after, update_m, **kwargs)
+    
+    updated_matches = {}
+    for m, val in current_matches.items():
+        if m[0]:
+            if m[0][0] in verts_to_update or m[0][0] in removed_vertices: continue
+        elif m[1]:
+            if all(v in verts_to_update for v in [m[1][0],m[1][1]]) or any(v in removed_vertices for v in [m[1][0],m[1][1]]): continue
+        elif m[2]:
+            if m[2][0] in verts_to_update or m[2][0] in removed_vertices: continue
+        else: continue
+        updated_matches[m] = val
+    
     updated_matches.update(new_matches)
     g_after.vertices_to_update = []
     return updated_matches
-
-def int_cliff_flow_simp(g, matchf = None, condition=lambda graph, match: fast_flow(graph), quiet=True):
-    return selective_simp(g, None, match_int_cliff, update_2Q_reduce_matches, int_cliff, matchf=matchf, condition=condition, quiet=quiet)
-
-def twoQ_reduce_simp(g: BaseGraph[VT,ET], x, matchf:Optional[Callable[[VT],bool]]=None, condition:Optional[Callable[...,bool]]=lambda graph, match: fast_flow(graph), quiet:bool=False) -> int:
-    return selective_simp(g, x, match_2Q_reduce, update_2Q_reduce_matches, unfuse, matchf=matchf, condition=condition, quiet=quiet)
 
 def to_gh(g: BaseGraph[VT,ET],quiet:bool=True) -> None:
     """Turns every red node into a green node by changing regular edges into hadamard edges"""
@@ -416,6 +401,103 @@ def to_rg(g: BaseGraph[VT,ET], select:Optional[Callable[[VT],bool]]=None) -> Non
             g.set_type(v, toggle_vertex(ty[v]))
             for e in g.incident_edges(v):
                 g.set_edge_type(e, toggle_edge(g.edge_type(e)))
+
+def is_graph_like(g):
+    """Checks if a ZX-diagram is graph-like"""
+
+    # checks that all spiders are Z-spiders
+    for v in g.vertices():
+        if g.type(v) not in [VertexType.Z, VertexType.BOUNDARY]:
+            return False,1
+
+    for v1, v2 in itertools.combinations(g.vertices(), 2):
+        if not g.connected(v1, v2):
+            continue
+
+        # Z-spiders are only connected via Hadamard edges
+        if g.type(v1) == VertexType.Z and g.type(v2) == VertexType.Z \
+           and g.edge_type(g.edge(v1, v2)) != EdgeType.HADAMARD:
+            return False,2
+
+        # FIXME: no parallel edges
+
+    # # no self-loops
+    # for v in g.vertices():
+    #     if g.connected(v, v):
+    #         return False,3
+
+    # # every I/O is connected to a Z-spider
+    # bs = [v for v in g.vertices() if g.type(v) == VertexType.BOUNDARY]
+    # for b in bs:
+    #     if g.vertex_degree(b) != 1 or g.type(list(g.neighbors(b))[0]) != VertexType.Z:
+    #         return False,4
+
+    # # every Z-spider is connected to at most one I/O
+    # zs = [v for v in g.vertices() if g.type(v) == VertexType.Z]
+    # for z in zs:
+    #     b_neighbors = [n for n in g.neighbors(z) if g.type(n) == VertexType.BOUNDARY]
+    #     if len(b_neighbors) > 1:
+    #         return False,5,z
+
+    return True
+
+
+def to_graph_like(g):
+    """Puts a ZX-diagram in graph-like form"""
+
+    # turn all red spiders into green spiders
+    to_gh(g)
+
+    # simplify: remove excess HAD's, fuse along non-HAD edges, remove parallel edges and self-loops
+    spider_simp(g, quiet=True)
+    # # ensure all I/O are connected to a Z-spider
+    # bs = [v for v in g.vertices() if g.type(v) == VertexType.BOUNDARY]
+    # for v in bs:
+
+    #     # if it's already connected to a Z-spider, continue on
+    #     if any([g.type(n) == VertexType.Z for n in g.neighbors(v)]):
+    #         continue
+
+    #     # have to connect the (boundary) vertex to a Z-spider
+    #     ns = list(g.neighbors(v))
+    #     for n in ns:
+    #         # every neighbor is another boundary or an H-Box
+    #         assert(g.type(n) in [VertexType.BOUNDARY, VertexType.H_BOX])
+    #         if g.type(n) == VertexType.BOUNDARY:
+    #             z1 = g.add_vertex(ty=VertexType.Z)
+    #             z2 = g.add_vertex(ty=VertexType.Z)
+    #             z3 = g.add_vertex(ty=VertexType.Z)
+    #             g.remove_edge(g.edge(v, n))
+    #             g.add_edge(g.edge(v, z1), edgetype=EdgeType.SIMPLE)
+    #             g.add_edge(g.edge(z1, z2), edgetype=EdgeType.HADAMARD)
+    #             g.add_edge(g.edge(z2, z3), edgetype=EdgeType.HADAMARD)
+    #             g.add_edge(g.edge(z3, n), edgetype=EdgeType.SIMPLE)
+    #         else: # g.type(n) == VertexType.H_BOX
+    #             z = g.add_vertex(ty=VertexType.Z)
+    #             g.remove_edge(g.edge(v, n))
+    #             g.add_edge(g.edge(v, z), edgetype=EdgeType.SIMPLE)
+    #             g.add_edge(g.edge(z, n), edgetype=EdgeType.SIMPLE)
+
+    # # each Z-spider can only be connected to at most 1 I/O
+    # vs = list(g.vertices())
+    # for v in vs:
+    #     if not g.type(v) == VertexType.Z:
+    #         continue
+    #     boundary_ns = [n for n in g.neighbors(v) if g.type(n) == VertexType.BOUNDARY]
+    #     if len(boundary_ns) <= 1:
+    #         continue
+
+    #     # add dummy spiders for all but one
+    #     for b in boundary_ns[:-1]:
+    #         z1 = g.add_vertex(ty=VertexType.Z)
+    #         z2 = g.add_vertex(ty=VertexType.Z)
+
+    #         g.remove_edge(g.edge(v, b))
+    #         g.add_edge(g.edge(z1, z2), edgetype=EdgeType.HADAMARD)
+    #         g.add_edge(g.edge(b, z1), edgetype=EdgeType.SIMPLE)
+    #         g.add_edge(g.edge(z2, v), edgetype=EdgeType.HADAMARD)
+
+    assert(is_graph_like(g))
 
 def tcount(g: Union[BaseGraph[VT,ET], Circuit]) -> int:
     """Returns the amount of nodes in g that have a non-Clifford phase."""
@@ -477,101 +559,3 @@ def clifford_iter(g: BaseGraph[VT,ET]) -> Iterator[Tuple[BaseGraph[VT,ET],str]]:
     yield from pivot_iter(g)
     yield from id_iter(g)
     yield from spider_iter(g)
-
-
-def is_graph_like(g):
-    """Checks if a ZX-diagram is graph-like"""
-
-    # checks that all spiders are Z-spiders
-    for v in g.vertices():
-        if g.type(v) not in [VertexType.Z, VertexType.BOUNDARY]:
-            return False
-
-    for v1, v2 in itertools.combinations(g.vertices(), 2):
-        if not g.connected(v1, v2):
-            continue
-
-        # Z-spiders are only connected via Hadamard edges
-        if g.type(v1) == VertexType.Z and g.type(v2) == VertexType.Z \
-           and g.edge_type(g.edge(v1, v2)) != EdgeType.HADAMARD:
-            return False
-
-        # FIXME: no parallel edges
-
-    # no self-loops
-    for v in g.vertices():
-        if g.connected(v, v):
-            return False
-
-    # every I/O is connected to a Z-spider
-    bs = [v for v in g.vertices() if g.type(v) == VertexType.BOUNDARY]
-    for b in bs:
-        if g.vertex_degree(b) != 1 or g.type(list(g.neighbors(b))[0]) != VertexType.Z:
-            return False
-
-    # every Z-spider is connected to at most one I/O
-    zs = [v for v in g.vertices() if g.type(v) == VertexType.Z]
-    for z in zs:
-        b_neighbors = [n for n in g.neighbors(z) if g.type(n) == VertexType.BOUNDARY]
-        if len(b_neighbors) > 1:
-            return False
-
-    return True
-
-
-def to_graph_like(g):
-    """Puts a ZX-diagram in graph-like form"""
-
-    # turn all red spiders into green spiders
-    to_gh(g)
-
-    # simplify: remove excess HAD's, fuse along non-HAD edges, remove parallel edges and self-loops
-    spider_simp(g, quiet=True)
-    # ensure all I/O are connected to a Z-spider
-    bs = [v for v in g.vertices() if g.type(v) == VertexType.BOUNDARY]
-    for v in bs:
-
-        # if it's already connected to a Z-spider, continue on
-        if any([g.type(n) == VertexType.Z for n in g.neighbors(v)]):
-            continue
-
-        # have to connect the (boundary) vertex to a Z-spider
-        ns = list(g.neighbors(v))
-        for n in ns:
-            # every neighbor is another boundary or an H-Box
-            assert(g.type(n) in [VertexType.BOUNDARY, VertexType.H_BOX])
-            if g.type(n) == VertexType.BOUNDARY:
-                z1 = g.add_vertex(ty=VertexType.Z)
-                z2 = g.add_vertex(ty=VertexType.Z)
-                z3 = g.add_vertex(ty=VertexType.Z)
-                g.remove_edge(g.edge(v, n))
-                g.add_edge(g.edge(v, z1), edgetype=EdgeType.SIMPLE)
-                g.add_edge(g.edge(z1, z2), edgetype=EdgeType.HADAMARD)
-                g.add_edge(g.edge(z2, z3), edgetype=EdgeType.HADAMARD)
-                g.add_edge(g.edge(z3, n), edgetype=EdgeType.SIMPLE)
-            else: # g.type(n) == VertexType.H_BOX
-                z = g.add_vertex(ty=VertexType.Z)
-                g.remove_edge(g.edge(v, n))
-                g.add_edge(g.edge(v, z), edgetype=EdgeType.SIMPLE)
-                g.add_edge(g.edge(z, n), edgetype=EdgeType.SIMPLE)
-
-    # each Z-spider can only be connected to at most 1 I/O
-    vs = list(g.vertices())
-    for v in vs:
-        if not g.type(v) == VertexType.Z:
-            continue
-        boundary_ns = [n for n in g.neighbors(v) if g.type(n) == VertexType.BOUNDARY]
-        if len(boundary_ns) <= 1:
-            continue
-
-        # add dummy spiders for all but one
-        for b in boundary_ns[:-1]:
-            z1 = g.add_vertex(ty=VertexType.Z)
-            z2 = g.add_vertex(ty=VertexType.Z)
-
-            g.remove_edge(g.edge(v, b))
-            g.add_edge(g.edge(z1, z2), edgetype=EdgeType.HADAMARD)
-            g.add_edge(g.edge(b, z1), edgetype=EdgeType.SIMPLE)
-            g.add_edge(g.edge(z2, v), edgetype=EdgeType.HADAMARD)
-
-    assert(is_graph_like(g))

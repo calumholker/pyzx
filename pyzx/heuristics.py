@@ -96,21 +96,21 @@ def id_fuse_statistics(g: BaseGraph[VT,ET], v: VT, v0: VT, v1: VT):
     if g.connected(v0,v1): edges_removed += 1
     return edges_removed, vertices_removed
 
-def lcomp_2Q_reduce_heuristic(g: BaseGraph[VT,ET], x,match: MatchLcompUnfuseType):
+def lcomp_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchLcompUnfuseType, score_params):
     edges_removed, vertices_removed = lcomp_statistics(g, match[0], match[1], match[2])
     twoQ_removed = edges_removed - vertices_removed
-    if twoQ_removed > 0: return x[0]*(twoQ_removed + x[3]*vertices_removed + x[4])
-    if twoQ_removed == 0 and vertices_removed > 0: return x[0]*(twoQ_removed + x[3]*vertices_removed + x[4])
+    if twoQ_removed > 0: return score_params[0]*twoQ_removed
+    if twoQ_removed == 0 and vertices_removed > 0: return score_params[0]*twoQ_removed
     return None
 
-def pivot_2Q_reduce_heuristic(g: BaseGraph[VT,ET], x,match: MatchPivotUnfuseType):
+def pivot_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchPivotUnfuseType, score_params):
     edges_removed, vertices_removed = pivot_statistics(g, match[0], match[1], match[2], match[3], match[4])
     twoQ_removed = edges_removed - vertices_removed
-    if twoQ_removed > 0: return x[1]*(twoQ_removed + x[5]*vertices_removed + x[6])
-    if twoQ_removed == 0 and vertices_removed > 0:  return x[1]*(twoQ_removed + x[5]*vertices_removed + x[6])
+    if twoQ_removed > 0: return score_params[1]*twoQ_removed
+    if twoQ_removed == 0 and vertices_removed > 0: return score_params[1]*twoQ_removed
     return None
 
-def id_fuse_2Q_reduce_heuristic(g: BaseGraph[VT,ET], x,match: MatchIdFuseType):
+def id_fuse_2Q_reduce_heuristic(g: BaseGraph[VT,ET], match: MatchIdFuseType, score_params):
     edges_removed, vertices_removed = id_fuse_statistics(g, match[0], match[1], match[2])
     twoQ_removed = edges_removed - vertices_removed
-    if twoQ_removed >= 0: return x[2]*(twoQ_removed + x[7]*vertices_removed + x[8])
+    if twoQ_removed >= 0: return score_params[2]*twoQ_removed
