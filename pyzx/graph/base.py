@@ -914,6 +914,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         Sets the phase of ``v`` to ``target_phase``, updating the rest of the vertex_group where necessary
 
         :param v:
+        :param current_phase:
         :param target_phase:
         """
         root_v = self.root_vertex(v)
@@ -958,17 +959,15 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         root_v2 = self.root_vertex(v2)
         group_1 = self.vertex_groups.get(root_v1)
         group_2 = self.vertex_groups.get(root_v2)
-
-        pauli_or_none = lambda p: p if p in PAULI else None
         
-        if not group_1 and not group_2: return [pauli_or_none(v1p), pauli_or_none(v2p)]
-        if not group_1: return [pauli_or_none(v1p), 0]
-        if not group_2: return [0, pauli_or_none(v2p)]
+        if not group_1 and not group_2: return [v1p if v1p in PAULI else None, v2p if v2p in PAULI else None]
+        if not group_1: return [v1p if v1p in PAULI else None, 0]
+        if not group_2: return [0, v2p if v2p in PAULI else None]
         
         if group_1 == group_2:
             if len(self.group_data[group_1]) > 2: return [0,0] # Can place phase on another vertex in group
             else: # Calculate the resultant phase v2 would have if v1 was fixed to 0
-                new_phase_v2 = self.phase(v2) + self.phase_mult[root_v2] * (self.phase_sum[group_1] + self.phase_mult[root_v1] * self.phase(v1))
+                new_phase_v2 = v2p + self.phase_mult[root_v2] * (self.phase_sum[group_1] + self.phase_mult[root_v1] * v1p)
                 if new_phase_v2 in PAULI: return [0, new_phase_v2]
                 else: return None # Will get identical result if v2 was fixed to 0 and the resultant phase of v1 was calculated
                 

@@ -32,11 +32,10 @@ def pivot_statistics(g: BaseGraph[VT,ET], v0: VT, v1: VT, neighbours_to_unfuse: 
     :param neighbours_to_unfuse: 2-tuple containing the neighbours to unfuse onto for the respecive vertices, defaults to ((),())
     :return: 2-tuple containing the number of edges removed and number of vertices removed.
     """
-    v0n, v1n = set(g.neighbors(v0)) - {v1}, set(g.neighbors(v1)) - {v0}
     unfuse0, unfuse1 = set(neighbours_to_unfuse[0]), set(neighbours_to_unfuse[1])
     
-    v0n -= unfuse0
-    v1n -= unfuse1
+    v0n = set(g.neighbors(v0)) - {v1} - unfuse0
+    v1n = set(g.neighbors(v1)) - {v0} - unfuse1
     
     shared_n = v0n & v1n
     num_shared_n = len(shared_n)
@@ -44,11 +43,8 @@ def pivot_statistics(g: BaseGraph[VT,ET], v0: VT, v1: VT, neighbours_to_unfuse: 
     v0n -= shared_n
     v1n -= shared_n
     
-    num_v0n = len(v0n)
-    if unfuse0: num_v0n += 1
-    
-    num_v1n = len(v1n)
-    if unfuse1: num_v1n += 1
+    num_v0n = len(v0n) + bool(unfuse0)
+    num_v1n = len(v1n) + bool(unfuse1)
     
     max_new_connections = num_v0n * num_v1n + num_v0n * num_shared_n + num_v1n * num_shared_n
     
@@ -70,11 +66,9 @@ def lcomp_statistics(g: BaseGraph[VT,ET], v: VT, vn: Tuple[VT,...], neighbours_t
     :param neighbours_to_unfuse: The neighbours to unfuse from the vertex.
     :return: 2-tuple containing the number of edges removed and number of vertices removed.
     """
-    vns, unfuse = set(vn), set(neighbours_to_unfuse)
-    
-    vns -= unfuse
-    num_vns = len(vns)
-    if unfuse: num_vns += 1
+    unfuse = set(neighbours_to_unfuse)
+    vns = set(vn) - unfuse
+    num_vns = len(vns) + bool(unfuse)
     
     max_new_connections = (num_vns * (num_vns-1)) // 2
     num_edges_between_neighbours = sum(1 for v1 in vns for v2 in vns if v1 < v2 and g.connected(v1, v2))

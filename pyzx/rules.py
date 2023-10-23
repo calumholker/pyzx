@@ -1215,7 +1215,7 @@ def match_pivot_unfuse(
     :param max_unfusions: The maximum number of neighours to unfuse onto for each vertex.
     :return: List of 3-tuples. See :func:`pivot_unfuse` for the details.
     """
-    if match_filter: candidates = {e for e in g.edges() if g.edge_type(e) == EdgeType.HADAMARD and match_filter(e)}
+    if match_filter: candidates = {e for e in g.edges() if match_filter(e) and g.edge_type(e) == EdgeType.HADAMARD}
     else: candidates = {e for e in g.edges() if g.edge_type(e) == EdgeType.HADAMARD}
     
     phases = g.phases()
@@ -1227,28 +1227,42 @@ def match_pivot_unfuse(
         e = candidates.pop()
         
         v0, v1 = g.edge_st(e)
-        if any(types[v] != VertexType.Z or g.is_ground(v) for v in (v0, v1)): continue
+        if types[v0] != VertexType.Z or types[v1] != VertexType.Z or g.is_ground(v0) or g.is_ground(v1): continue
         
         v0n = list(g.neighbors(v0))
         v1n = list(g.neighbors(v1))
         if len(v0n) == 1 or len(v1n) == 1: continue
         
-        v0b = [n for n in v0n if types[n] == VertexType.BOUNDARY]
-        if any(types[n] != VertexType.Z or g.edge_type(g.edge(v0, n)) != EdgeType.HADAMARD for n in v0n if n not in v0b): continue
+        v0b = set()
+        for n in v0n:
+            ty = types[n]
+            if ty == VertexType.BOUNDARY:
+                v0b.add(n)
+                continue
+            if ty != VertexType.Z or g.edge_type(g.edge(v0, n)) != EdgeType.HADAMARD: continue
         
-        v1b = [n for n in v1n if g.type(n) == VertexType.BOUNDARY]
-        if any(types[n] != VertexType.Z or g.edge_type(g.edge(v1, n)) != EdgeType.HADAMARD for n in v1n if n not in v1b): continue
+        v1b = set()
+        for n in v1n:
+            ty = types[n]
+            if ty == VertexType.BOUNDARY:
+                v1b.add(n)
+                continue
+            if ty != VertexType.Z or g.edge_type(g.edge(v1, n)) != EdgeType.HADAMARD: continue
         
         if g.phase_tracking: pivot_phases = g.check_two_pauli_phases(v0, phases[v0], v1, phases[v1])
-        else: pivot_phases = [p if p in {0, 1} else None for p in [phases[v0], phases[v1]]]
+        else: pivot_phases = [p if p in {0, 1} else None for p in (phases[v0], phases[v1])]
         
-        for subset_size_v0 in range(min(len(v0n) - 1, max_unfusions + 1)):
-            for subset_size_v1 in range(min(len(v1n) - 1, max_unfusions + 1)):
-                for neighbours_to_unfuse_0 in itertools.combinations(v0n, subset_size_v0):
+        max_subset_v0 = min(len(v0n) - 1, max_unfusions + 1)
+        max_subset_v1 = min(len(v1n) - 1, max_unfusions + 1)
+        for subset_size_v0 in range(max_subset_v0):
+            for neighbours_to_unfuse_0 in itertools.combinations(v0n, subset_size_v0):
+                if v1 in neighbours_to_unfuse_0: continue
+                if v0b and not v0b.issubset(neighbours_to_unfuse_0): continue
+                
+                for subset_size_v1 in range(max_subset_v1):
                     for neighbours_to_unfuse_1 in itertools.combinations(v1n, subset_size_v1):
-                        if v0 in neighbours_to_unfuse_1 or v1 in neighbours_to_unfuse_0: continue
-                        if v0b and not set(v0b).issubset(neighbours_to_unfuse_0): continue
-                        if v1b and not set(v1b).issubset(neighbours_to_unfuse_1): continue
+                        if v0 in neighbours_to_unfuse_1: continue
+                        if v1b and not v1b.issubset(neighbours_to_unfuse_1): continue
                         
                         if (pivot_phases is None and not (neighbours_to_unfuse_0 or neighbours_to_unfuse_1)) or \
                             (pivot_phases == [None, None] and (not neighbours_to_unfuse_0 or not neighbours_to_unfuse_1)) or \

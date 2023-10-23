@@ -86,23 +86,25 @@ def cflow(g: BaseGraph[VT, ET], full_path_info: bool = False) -> Union[Optional[
     if full_path_info:
         return full_cflow(g)
     
-    order: Dict[VT, int] = {}
-    flow: Dict[VT, VT] = {}
-    
     inputs = set(g.inputs())
     processed = set(g.outputs())
     vertices = set(g.vertices())
+    num_vertices = len(vertices)
+    non_inputs = vertices - inputs
     correctors = processed - inputs
     
+    order: Dict[VT, int] = {v:0 for v in processed}
+    flow: Dict[VT, VT] = {}
+    
+    neighbor_sets = {v: set(g.neighbors(v)) for v in vertices}
+    
     depth = 1
-    order.update({v:0 for v in processed})
-        
     while True:
         out_prime = set()
         c_prime = set()
         
         for v in correctors:
-            ns = set(g.neighbors(v)) - processed
+            ns = neighbor_sets[v] - processed
             if len(ns) == 1:
                 u = ns.pop()
                 if v != u:
@@ -112,12 +114,13 @@ def cflow(g: BaseGraph[VT, ET], full_path_info: bool = False) -> Union[Optional[
                     c_prime.add(v)
         
         if not out_prime:
-            if processed == vertices:
+            if len(processed) == num_vertices:
                 return order, flow, depth
             return None
         
-        processed |= out_prime
-        correctors = (correctors - c_prime) | (out_prime & (vertices - inputs))
+        processed.update(out_prime)
+        correctors.difference_update(c_prime)
+        correctors.update(out_prime & non_inputs)
         depth += 1
 
 def full_cflow(g: BaseGraph[VT, ET]) -> Optional[Tuple[Dict[VT,VT], Dict[VT,VT], Dict[VT,int], Dict[Tuple[VT,VT],int]]]:
