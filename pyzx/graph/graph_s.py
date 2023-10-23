@@ -67,7 +67,6 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         cpy.group_data = {group: set(vertices) for group, vertices in self.group_data.items()}
         cpy.phase_sum = self.phase_sum.copy()
         cpy.phase_mult = self.phase_mult.copy()
-        cpy.sign_change = self.sign_change.copy()
         cpy.vertices_to_update = self.vertices_to_update.copy()
         return cpy
     
@@ -92,10 +91,11 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         self.group_data = {group: set(vertices) for group, vertices in g.group_data.items()}
         self.phase_sum = g.phase_sum.copy()
         self.phase_mult = g.phase_mult.copy()
-        self.sign_change = g.sign_change.copy()
         self.vertices_to_update = g.vertices_to_update.copy()
 
-    def vindex(self): return self._vindex
+    def vindex(self): 
+        return self._vindex
+    
     def depth(self): 
         if self._rindex: self._maxr = max(self._rindex.values())
         else: self._maxr = -1
@@ -130,6 +130,7 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
             self._phase[i] = 0
         self._vindex += amount
         return range(self._vindex - amount, self._vindex)
+    
     def add_vertex_indexed(self, index):
         """Adds a vertex that is guaranteed to have the chosen index (i.e. 'name').
         If the index isn't available, raises a ValueError.
