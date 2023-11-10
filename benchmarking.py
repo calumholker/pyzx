@@ -1,13 +1,14 @@
 import os
 import sys
-import dill
+import dill # type: ignore
 import numpy as np
 from pyzx.circuit import Circuit
 import random
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Callable, Dict, List, Set, Tuple, Optional, Union
 import pandas as pd
 from IPython.display import display
-from tqdm import tqdm
+from tqdm import tqdm # type: ignore
+from time import perf_counter
 import matplotlib.pyplot as plt
 import pyzx as zx
 
@@ -18,17 +19,17 @@ pd.set_option('display.max_colwidth', None)
 
 class benchmark:
     """Class for benchmarking circuit simplification functions"""
-    def __init__(self, dirpath: str = None):
+    def __init__(self, dirpath: Optional[str] = None):
         # callable functions which take simplify a circuit: {func_name: func}
         self.funcs: Dict[str, Callable[..., Circuit]] = dict()
         # list of simlification strategies of which the simplified circuits have been directly imported 
         self.routines: Set[str] = set()
         # unsimplified circuits: {group_name: [circuit_names]}
         self.circuit_groups: Dict[str, List[str]] = dict()
-        # simplified circuits: {circuit_name: {func_name: [circuit, qubit_count, gate_count, 2_count, T_count, t_simp, t_extract]}}
-        self.circuits: Dict[str, Dict[str, List[Circuit, int, int, int, int, float, float]]] = dict()
+        # simplified circuits: {circuit_name: {func_name: [circuit, qubit_count, gate_count, 2_count, T_count, t_opt]}}
+        self.circuits: Dict[str, Dict[str, List[Union[Circuit, int, Optional[float]]]]] = dict()
         # randomly generated circuit data {parameters: [seed, {func_name: [gate_count, 2_count, T_count]}]}
-        self.rand_data:  Dict[str, List[int, Dict[str, List[int, int, int]]]] = dict()
+        self.rand_data:  Dict[str, List[Union[int, Dict[str, List[float]]]]] = dict()
         
         if dirpath: # load from saved files
             if not os.path.isdir(dirpath): raise Exception(f'{dirpath} is not a directory.')
@@ -61,7 +62,7 @@ class benchmark:
     
     def show_attributes(self):
         """Displays which functions/circuit groups have been loaded, and a table for which have been run"""
-        atts = ['Qubits','Gates','2Q Count','T Count','t_simp','t_opt']
+        atts = ['Qubits','Gates','2Q Count','T Count','t_opt']
         print(f'Circuit attributes:  {atts}')
         if len(self.funcs) == 0: print('No loaded functions')
         else: print(f'Loaded functions:  {list(self.funcs.keys())}')
@@ -86,7 +87,7 @@ class benchmark:
                     df.at[g, s] = run
             display(df)
         
-    def load_circuits(self, dirname: str, group_name: str = None, simp_strategy: str ='Original', extension: str = None) -> None:
+    def load_circuits(self, dirname: str, group_name: Optional[str] = None, simp_strategy: str ='Original', extension: Optional[str] = None) -> None:
         """Loads circuits from a directory, for either the original circuits or pre-simplified versions
 
         Args:
@@ -111,9 +112,9 @@ class benchmark:
                 if simp_strategy == 'Original':
                     self.circuit_groups[group_name].append(circ_name)
                 if circ_name not in self.circuits.keys(): self.circuits[circ_name] = dict()
-                self.circuits[circ_name][simp_strategy] = [circ, circ.qubits, len(circ.gates), circ.twoqubitcount(), circ.tcount(), None, None]
+                self.circuits[circ_name][simp_strategy] = [circ, circ.qubits, len(circ.gates), circ.twoqubitcount(), circ.tcount(), None]
     
-    def add_simplification_func(self, func: Callable[..., Circuit], name: str, groups_to_run: List[str] = 'all', verify=False, rerun = False) -> None:
+    def add_simplification_func(self, func: Callable[..., Circuit], name: str, groups_to_run: Optional[List[str]] = ['all'], verify=False, rerun = False) -> None:
         """Loads a simplification function
 
         Args:
@@ -122,7 +123,7 @@ class benchmark:
             groups_to_run (List[str], optional): groups of circuits to immediately run the function on. Defaults to 'all'.
         """
         self.funcs[name] = func
-        if groups_to_run != None: self.run(funcs_to_run = [name], groups_to_run=groups_to_run, verify=verify, rerun=rerun)
+        if groups_to_run: self.run(funcs_to_run = [name], groups_to_run=groups_to_run, verify=verify, rerun=rerun)
         
     def del_simplification_funcs(self, funcs: List[str]) -> None:
         """Deletes simplification functions
@@ -134,10 +135,11 @@ class benchmark:
             if func_name in self.funcs.keys(): del self.funcs[func_name]
             for circuit_name, value in self.circuits.items():
                 if func_name in value.keys(): del self.circuits[circuit_name][func_name]
-            for parameters, value in self.rand_data.items():
-                if func_name in value[1].keys(): del self.rand_data[parameters][1][func_name]
+            for parameters, value2 in self.rand_data.items():
+                if func_name in value2[1].keys(): # type: ignore
+                    del self.rand_data[parameters][1][func_name] # type: ignore
     
-    def run(self, funcs_to_run: List[str] = 'all', groups_to_run: List[str] ='all', verify=False, rerun: bool = False) -> None:
+    def run(self, funcs_to_run: List[str] = ['all'], groups_to_run: List[str] = ['all'], verify: bool = False, rerun: bool = False) -> None:
         """Runs a series of functions on a series of groups of circuits
 
         Args:
@@ -145,8 +147,8 @@ class benchmark:
             groups_to_run (List[str], optional): names of loaded groups of circuits to run. Defaults to 'all'.
             rerun (bool, optional): rerun circuit even if function has already been run on it. Defaults to False.
         """
-        if funcs_to_run == 'all': funcs_to_run = self.funcs.keys()
-        if groups_to_run == 'all': groups_to_run = self.circuit_groups.keys()
+        if funcs_to_run == ['all']: funcs_to_run = list(self.funcs.keys())
+        if groups_to_run == ['all']: groups_to_run = list(self.circuit_groups.keys())
         for group_name in groups_to_run:
             if group_name not in self.circuit_groups.keys():
                 print(f'The group of circuits {group_name} has not been added. Call benchmark.show_attributes() to see loaded group names.')
@@ -162,20 +164,18 @@ class benchmark:
                     continue
                 if func_name in self.circuits[circ_name].keys() and not rerun: continue
                 pbar.set_description("{:<70}".format(f'Processing {func_name} on {circ_name}'))
-                res = self.funcs[func_name](self.circuits[circ_name]['Original'][0])
-                if not isinstance(res, tuple): opt_circ, t_simp, t_ext = res, None, None
-                else:
-                    (opt_circ, t_simp, t_ext) = res
-                    t_simp, t_ext = round(t_simp,2), round(t_ext,2)
+                t0 = perf_counter()
+                opt_circ = self.funcs[func_name](self.circuits[circ_name]['Original'][0])
+                t_opt = round(perf_counter() - t0,2)
                 if verify:
-                    c_id = self.circuits[circ_name]['Original'][0].adjoint()
+                    c_id = self.circuits[circ_name]['Original'][0].adjoint() # type: ignore
                     c_id.add_circuit(opt_circ)
                     g = c_id.to_graph()
                     zx.simplify.full_reduce(g)
                     if g.num_vertices() != 2*len(g.inputs()):
                         print(f'Circuit resulting from {func_name} on {circ_name} not verified',flush=True)
                         continue
-                self.circuits[circ_name][func_name] = [opt_circ, opt_circ.qubits, len(opt_circ.gates), opt_circ.twoqubitcount(), opt_circ.tcount(), t_simp, t_ext]
+                self.circuits[circ_name][func_name] = [opt_circ, opt_circ.qubits, len(opt_circ.gates), opt_circ.twoqubitcount(), opt_circ.tcount(), t_opt]
     
     @staticmethod
     def generate_cliffordT_circuit(qubits: int, depth: int, p_cnot: float, p_t: float) -> Circuit:
@@ -206,7 +206,7 @@ class benchmark:
                 c.add_gate("CNOT",tgt,ctrl)
         return c
     
-    def generate_data(self, qubits: int, depth: int, cnot_prob: float, t_prob: float, funcs_to_run: List[str] = 'all', reps: int = 50, overwrite: bool = False, random_seed: int = None, pbar: tqdm = None) -> None:
+    def generate_data(self, qubits: int, depth: int, cnot_prob: float, t_prob: float, funcs_to_run: List[str] = ['all'], reps: int = 50, overwrite: bool = False, random_seed: Optional[int] = None, pbar: tqdm = None) -> None:
         """Runs a series of functions on randomly generated Clifford + T circuits and stores the average result for each function
 
         Args:
@@ -228,14 +228,14 @@ class benchmark:
                 self.rand_data[params] = [seed, dict()]
                 run = []
             else:
-                run = self.rand_data[params][1].keys()
+                run = list(self.rand_data[params][1].keys()) # type: ignore
         else:
             if random_seed: seed = random_seed
             else: seed = random.randrange(sys.maxsize)
             self.rand_data[params] = [seed, dict()]
             run = []
         
-        random.seed(seed)
+        random.seed(seed) # type: ignore
         circuits = [self.generate_cliffordT_circuit(qubits, depth, cnot_prob, t_prob) for _ in range(reps)]
         
         if 'Original' not in run:
@@ -244,10 +244,10 @@ class benchmark:
                 count[0] += len(c.gates)
                 count[1] += c.twoqubitcount()
                 count[2] += c.tcount()
-            count = [x/reps for x in count]
-            self.rand_data[params][1]['Original'] = count      
+            count = [x/reps for x in count] # type: ignore
+            self.rand_data[params][1]['Original'] = count      # type: ignore
             
-        if funcs_to_run == 'all': funcs_to_run = self.funcs.keys()        
+        if funcs_to_run == ['all']: funcs_to_run = self.funcs.keys()   # type: ignore     
         for func_name in funcs_to_run:
             if func_name not in self.funcs.keys():
                 print(f'The function {func_name} has not been added. Call benchmark.show_attributes() to see loaded functions.')
@@ -264,10 +264,10 @@ class benchmark:
                 count[0] += len(c2.gates)
                 count[1] += c2.twoqubitcount()
                 count[2] += c2.tcount()
-            count = [x/reps for x in count]
-            self.rand_data[params][1][func_name] = count
+            count = [x/reps for x in count] # type: ignore
+            self.rand_data[params][1][func_name] = count # type: ignore
     
-    def Pt_graphs(self, funcs: List[str], qubits: int, depth: int, cnot_prob: float, t_probs: List[float], ys: List[str] = ['Gates','2Q Count','T Count'], reps: int = 50, overwrite: bool = False, figsize: List[int] = [7,5], random_seed: int = None) -> plt.figure:
+    def Pt_graphs(self, funcs: List[str], qubits: int, depth: int, cnot_prob: float, t_probs: List[float], ys: List[str] = ['Gates','2Q Count','T Count'], reps: int = 50, overwrite: bool = False, figsize: List[int] = [7,5], random_seed: Optional[int] = None) -> plt.figure:
         """Produces a series of graphs for circuit simplification metrics for random circuits with a range of T gate probabilites
 
         Args:
@@ -299,7 +299,7 @@ class benchmark:
             self.generate_data(qubits, depth, cnot_prob, t_prob, funcs_to_run=funcs, reps=reps, overwrite=overwrite, random_seed=random_seed, pbar=pbar)
             params = f'{qubits}_{depth}_{cnot_prob}_{t_prob}_{reps}'
             for i,func_name in enumerate(['Original']+funcs):
-                count = self.rand_data[params][1][func_name]
+                count = self.rand_data[params][1][func_name] # type: ignore
                 g_count[i].append(count[0])
                 two_count[i].append(count[1])
                 t_count[i].append(count[2])
@@ -311,25 +311,27 @@ class benchmark:
         
         if 'Gates' in stats: 
             ax1 = fig.add_subplot(1,len(stats),stats.index('Gates')+1)
-            ax1.set_ylabel("total gate count")
+            ax1.set_ylabel("Total Gate Count")
             ax1.set_xlabel("$P_t$")
+            ax1.grid(color='#EEEEEE')
         if '2Q Count' in stats:
             ax2 = fig.add_subplot(1, len(stats),stats.index('2Q Count')+1)
-            ax2.set_ylabel("2-qubit gate count")
+            ax2.set_ylabel("2-Qubit Gate Count")
             ax2.set_xlabel("$P_t$")
+            ax2.grid(color='#EEEEEE')
         if 'T Count' in stats:
             ax3 = fig.add_subplot(1, len(stats),stats.index('T Count')+1)
-            ax3.set_ylabel("T gate count")
+            ax3.set_ylabel("T Gate Count")
             ax3.set_xlabel("$P_t$")
+            ax3.grid(color='#EEEEEE')
         
         for i, func_name in enumerate(['Originial']+funcs):
             if 'Gates' in stats: ax1.plot(t_probs, g_count[i], marker="o" ,markersize=3, linestyle=':', label=func_name)
             if '2Q Count' in stats: ax2.plot(t_probs, two_count[i], marker="o" ,markersize=3, linestyle=':', label=func_name)
             if 'T Count' in stats: ax3.plot(t_probs, t_count[i], marker="o" ,markersize=3, linestyle=':', label=func_name)
         
-        plt.legend(bbox_to_anchor=(0.11, -0.05), loc="lower left",
+        plt.legend(bbox_to_anchor=(0.11, -0.19), loc="lower left",
                 bbox_transform=fig.transFigure, ncol=3*len(stats), fancybox=True)
-        plt.grid(color='#EEEEEE')
         return fig 
     
     @staticmethod
@@ -352,7 +354,7 @@ class benchmark:
         styler.format(subset=[col for col in cols if 't_opt' not in col and 't_simp' not in col],precision=0, na_rep='-', thousands=",")
         return(styler)
                 
-    def df(self, groups: List[str] = 'all', routines: List[str] = 'all', funcs: List[str] = 'all', atts: List[str] = 'all') -> pd.DataFrame:
+    def df(self, groups: List[str] = ['all'], routines: List[str] = ['all'], funcs: List[str] = ['all'], atts: List[str] = ['all']) -> pd.DataFrame:
         """Produces a pandas dataframe of metrics over benchmark circuits.
 
         Args:
@@ -363,22 +365,22 @@ class benchmark:
 
         Returns: pd.DataFrame
         """
-        if groups=='all': groups=list(self.circuit_groups.keys())
-        if routines=='all': routines=sorted(list(self.routines))
+        if groups==['all']: groups=list(self.circuit_groups.keys())
+        if routines==['all']: routines=sorted(list(self.routines))
         else:
             for r in routines[:]:
                 if r not in self.routines:
                     print(f'The routine {r} has not been added. Call <benchmark>.show_attributes() to see loaded routines.')
                     routines.remove(r)
-        if funcs=='all': funcs=sorted(list(self.funcs))
+        if funcs==['all']: funcs=sorted(list(self.funcs))
         else:
             for f in funcs[:]:
                 if f not in self.funcs.keys():
                     print(f'The function {f} has not been added. Call <benchmark>.show_attributes() to see loaded functions.')
                     funcs.remove(f)
         
-        all_atts = ['Qubits','Gates','2Q Count','T Count','t_simp','t_opt']
-        if atts == 'all': atts = all_atts
+        all_atts = ['Qubits','Gates','2Q Count','T Count','t_opt','na']
+        if atts == ['all']: atts = all_atts
         match_atts = [True if att in atts else False for att in all_atts]
         
         heads = ['Original'] + routines + funcs

@@ -23,6 +23,7 @@ from typing import List, Dict, Set, Tuple, Mapping, Iterable, Callable, ClassVar
 from typing_extensions import Literal, GenericMeta # type: ignore # https://github.com/python/mypy/issues/5753
 
 import numpy as np
+import random
 
 from ..utils import EdgeType, VertexType, toggle_edge, vertex_is_zx, toggle_vertex
 from ..utils import FloatInt, FractionLike
@@ -86,6 +87,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         self.group_data: Dict[int, Set[VT]] = {}
         self.phase_sum: Dict[int, FractionLike] = {}
         self.phase_mult: Dict[VT, int] = {}
+        self.vertex_rank: Dict[VT, int] = {}
         self.vertices_to_update: List[VT] = []
 
         # Merge_vdata(v0,v1) is an optional, custom function for merging
@@ -768,6 +770,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
             self.group_data[group_num] = set(group) # Groups of vertices fused throughout teleportation
             phase_sum = Fraction(0)
             for v in group:
+                self.vertex_rank[v] = teleporter.vertex_rank[v]
                 self.vertex_groups[v] = group_num
                 mult = teleporter.phase_mult[v]
                 self.phase_mult[v] = mult # Associated teleportation phase multiplier
@@ -807,16 +810,22 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         elif group_len == 2:
             self.vertices_to_update.extend(self.leaf_vertex(u) for u in group_data) # Some pivots may need to be rechecked
     
-    def place_tracked_phases(self) -> None:
+    def place_tracked_phases(self, allow_jumping=False) -> None:
         """Used for phase teleportation.
         Places any stored phases onto the graph.
+        ``allow_jumping`` defines whether any additional phases are permitted to teleport around during simplification.
         """
-        for group, vertices in self.group_data.items():
-            v = list(vertices)[0]
+        for group, vertices in list(self.group_data.items()):
+            v = max(vertices, key = self.vertex_rank.__getitem__)
             phase = self.phase_sum[group] * self.phase_mult[v]
             child_v = self.leaf_vertex(v)
-            self.add_to_phase(child_v, phase)
-            
+            if not allow_jumping:
+                self.add_to_phase(child_v, phase)
+                continue
+            current_phase = self.phase(child_v)
+            self.fix_phase(child_v, current_phase, current_phase + phase)
+        
+        if allow_jumping: return
         self.vertex_groups.clear()
         self.group_data.clear()
         self.phase_sum.clear()
@@ -866,7 +875,7 @@ class BaseGraph(Generic[VT, ET], metaclass=DocstringMeta):
         if group_2 is not None:
             if group_1 is not None:
                 if group_1 == group_2: self.remove_vertex_from_group(root_v2, group_2)
-                # TODO The below handling of the case when group_1 != group_2 is not optimal
+                # The below handling of the case when group_1 != group_2 is not optimal
                 elif len(self.group_data[group_1]) <= len(self.group_data[group_2]):
                     print('group_1 != group_2')
                     self.remove_vertex_from_group(root_v2, group_2)

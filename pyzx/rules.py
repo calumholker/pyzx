@@ -1082,12 +1082,7 @@ def id_fuse(g: BaseGraph[VT,ET], matches: List[MatchIdFuseType[VT]]) -> RewriteO
 
 def unfuse_neighbours(g: BaseGraph[VT,ET], v: VT, neighbours_to_unfuse: Tuple[VT,...], desired_phase: FractionLike) -> Tuple[VT,VT]:
     """Helper function which unfuses a vertex onto a set of neighbours, leaving it with a desired phase."""
-    original_phase = g.phase(v)
-    
-    extend_denom = max(original_phase.denominator,desired_phase.denominator)
-    original_phase_n = int(original_phase.numerator * (extend_denom / original_phase.denominator))
-    desired_phase_n = int(desired_phase.numerator * (extend_denom / desired_phase.denominator))
-    unfused_phase = Fraction((original_phase_n - desired_phase_n) % (extend_denom*2), extend_denom)
+    unfused_phase = g.phase(v) - desired_phase
     
     vp = g.add_vertex(VertexType.Z, -2, g.row(v), unfused_phase)
     v0 = g.add_vertex(VertexType.Z, -1, g.row(v))

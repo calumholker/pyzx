@@ -101,25 +101,28 @@ def id_fuse_statistics(g: BaseGraph[VT,ET], v: VT, v0: VT, v1: VT) -> Tuple[int,
     
     return edges_removed, vertices_removed
 
-def lcomp_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchLcompUnfuseType, weight: float) -> Optional[float]:
+def lcomp_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchLcompUnfuseType, weight: float, stats = None, num_rewrites = 0) -> Optional[float]:
     """Returns the score heuristic for a local complementation match"""
     edges_removed, vertices_removed = lcomp_statistics(g, match[0], match[1], match[2])
     twoQ_removed = edges_removed - vertices_removed
+    if stats: stats.add_match(match, 'lcomp', twoQ_removed, len(match[2]), num_rewrites+1)
     if twoQ_removed > 0: return weight*twoQ_removed
     if twoQ_removed == 0 and vertices_removed > 0: return weight*twoQ_removed
     return None
 
-def pivot_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchPivotUnfuseType, weight: float) -> Optional[float]:
+def pivot_2Q_simp_heuristic(g: BaseGraph[VT,ET], match: MatchPivotUnfuseType, weight: float, stats = None, num_rewrites = 0) -> Optional[float]:
     """Returns the score heuristic for a pivot match"""
     edges_removed, vertices_removed = pivot_statistics(g, match[0], match[1], match[2])
     twoQ_removed = edges_removed - vertices_removed
+    if stats: stats.add_match(match, 'pivot', twoQ_removed, max(len(match[2][0]),len(match[2][1])), num_rewrites+1)
     if twoQ_removed > 0: return weight*twoQ_removed
     if twoQ_removed == 0 and vertices_removed > 0: return weight*twoQ_removed
     return None
 
-def id_fuse_2Q_reduce_heuristic(g: BaseGraph[VT,ET], match: MatchIdFuseType, weight: float) -> float:
+def id_fuse_2Q_reduce_heuristic(g: BaseGraph[VT,ET], match: MatchIdFuseType, weight: float, stats = None, num_rewrites = 0) -> float:
     """Returns the score heuristic for a identity fusion match"""
     edges_removed, vertices_removed = id_fuse_statistics(g, match[0], match[1], match[2])
     twoQ_removed = edges_removed - vertices_removed
+    if stats: stats.add_match(match, 'id_fuse', twoQ_removed, 0, num_rewrites+1)
     assert(twoQ_removed >= 0)
     return weight*twoQ_removed

@@ -67,6 +67,7 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         cpy.group_data = {group: set(vertices) for group, vertices in self.group_data.items()}
         cpy.phase_sum = self.phase_sum.copy()
         cpy.phase_mult = self.phase_mult.copy()
+        cpy.vertex_rank = self.vertex_rank.copy()
         cpy.vertices_to_update = self.vertices_to_update.copy()
         return cpy
     
@@ -91,6 +92,7 @@ class GraphS(BaseGraph[int,Tuple[int,int]]):
         self.group_data = {group: set(vertices) for group, vertices in g.group_data.items()}
         self.phase_sum = g.phase_sum.copy()
         self.phase_mult = g.phase_mult.copy()
+        self.vertex_rank = g.vertex_rank.copy()
         self.vertices_to_update = g.vertices_to_update.copy()
 
     def vindex(self): 
