@@ -314,7 +314,6 @@ def selective_simp(
     match_filter: Union[Optional[Callable[[VT], bool]], Optional[Callable[[ET], bool]]] = None,
     condition: Callable[..., bool] = lambda *args: True,
     num: int = -1,
-    stats = None,
     **kwargs: Any
     ) -> int:
     """Helper method for constructing simplification strategies in which each match is assigned a score, and 
@@ -346,7 +345,7 @@ def selective_simp(
     num_rewrites = 0
     matches = {}
     for match in get_matches(g, match_filter, **kwargs):
-        score = match_score(g=g, match=match, stats=stats, num_rewrites=num_rewrites, **kwargs)
+        score = match_score(g=g, match=match, **kwargs)
         if score is None: continue
         matches[match] = score
     while matches and num_rewrites != num:
@@ -354,12 +353,10 @@ def selective_simp(
         check_g = g.clone()
         apply_rule(check_g, rewrite, [match])
         if condition(check_g, match):
-            if stats: stats.match_flow(match, matches[match], True)
             num_rewrites += 1
-            matches = update_matches(g, check_g, matches, get_matches, match_score, match_filter, stats, **kwargs)
+            matches = update_matches(g, check_g, matches, get_matches, match_score, match_filter, **kwargs)
             g.replace(check_g)
             continue
-        if stats: stats.match_flow(match, matches[match], False)
         del matches[match]
     return num_rewrites
 
@@ -370,8 +367,7 @@ def flow_2Q_simp(
     rewrites: List[str] = ['id_fuse','lcomp','pivot'],
     score_weights: List[float] = [1,1,1],
     max_lc_unfusions: int = 0,
-    max_p_unfusions: int = 0,
-    stats = None
+    max_p_unfusions: int = 0
     ) -> int:
     """Simplification strategy which aims to minimise the number of two qubit gates in the extracted circuit by selecting matches based on the heuristic |edges removed| - |vertices removed|.
 
@@ -397,13 +393,13 @@ def flow_2Q_simp(
                 return gflow(graph) is not None
             return True
         
-    return selective_simp(g, match_2Q_simp, match_score_2Q_simp, update_2Q_simp_matches, rewrite_2Q_simp, match_filter, flow_condition, rewrites=rewrites, score_weights=score_weights, max_lc_unfusions=max_lc_unfusions, max_p_unfusions=max_p_unfusions, stats=stats) #type:ignore
+    return selective_simp(g, match_2Q_simp, match_score_2Q_simp, update_2Q_simp_matches, rewrite_2Q_simp, match_filter, flow_condition, rewrites=rewrites, score_weights=score_weights, max_lc_unfusions=max_lc_unfusions, max_p_unfusions=max_p_unfusions) #type:ignore
 
-def match_score_2Q_simp(g: BaseGraph[VT, ET], match: MatchUnfuseType, stats=None, num_rewrites=0, score_weights: List[float] = [1,1,1], **kwargs) -> Optional[float]:
+def match_score_2Q_simp(g: BaseGraph[VT, ET], match: MatchUnfuseType, score_weights: List[float] = [1,1,1], **kwargs) -> Optional[float]:
     """Function which returns the score for a ``UnfuseMatchType``."""
-    if match[0]: return lcomp_2Q_simp_heuristic(g, match[0], score_weights[0], stats, num_rewrites)
-    if match[1]: return pivot_2Q_simp_heuristic(g, match[1], score_weights[1], stats, num_rewrites)
-    if match[2]: return id_fuse_2Q_reduce_heuristic(g, match[2], score_weights[2], stats, num_rewrites)
+    if match[0]: return lcomp_2Q_simp_heuristic(g, match[0], score_weights[0])
+    if match[1]: return pivot_2Q_simp_heuristic(g, match[1], score_weights[1])
+    if match[2]: return id_fuse_2Q_reduce_heuristic(g, match[2], score_weights[2])
 
 def update_2Q_simp_matches(
     g_before: BaseGraph[VT, ET],
@@ -412,7 +408,6 @@ def update_2Q_simp_matches(
     get_matches: Callable[..., List[MatchUnfuseType]],
     match_score: Callable[..., Optional[float]],
     match_filter: Union[Optional[Callable[[VT], bool]], Optional[Callable[[ET], bool]]] = None,
-    stats = None,
     **kwargs: Any
     ) -> Dict[MatchUnfuseType, float]:
     """Function which updates matches for ::func::`flow_2Q_simp`, rechecking any candidate vertices and edges which have been effected by the rewrite performed"""
@@ -437,7 +432,7 @@ def update_2Q_simp_matches(
         updated_matches_dict[m] = score
     
     for m in new_matches:
-        m_score = match_score(g=g_after, match=m, stats=stats, **kwargs)
+        m_score = match_score(g=g_after, match=m, **kwargs)
         if m_score is None: continue
         updated_matches_dict[m] = m_score
         
